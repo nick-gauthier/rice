@@ -1,0 +1,169 @@
+---
+title: "Rice Niche"
+author: "Nick Gauthier"
+date: "`r Sys.Date()`"
+format: html
+editor: visual
+knitr: 
+  opts_chunk:
+    echo: FALSE
+---
+
+```{r setup, message = FALSE, warning = FALSE}
+# analysis packages
+library(stars) # spatio-temporal raster processing
+library(tidyverse) # data manipulation and plotting
+library(tidymodels) # machine learning
+library(geodata) # geographic data
+library(here) # cross-platform directory structures
+library(readxl) # read excel spreadsheets
+# library(dismo) # generating background points for niche model, not loaded but should be installed
+
+
+# visualization packages
+library(rnaturalearth) # country boundaries
+library(vip) # variable importance plots
+
+# define the study area
+bbox <- st_bbox(c(xmin = 60, xmax = 150, ymin = -20, ymax = 50), crs = 4326)
+# create a 10' reference raster
+ref <- st_as_stars(bbox, dx = 0.166667)
+#sf_use_s2(FALSE)
+
+# get country boundaries shapefile for plotting
+countries <- ne_countries(returnclass = "sf", scale = 'large') %>%
+  st_crop(bbox)
+coasts <- ne_coastline(returnclass = 'sf') %>%
+  st_crop(bbox)
+```
+
+Read in the GBIF/CHV occurrence data for rice's wild progenitor (*Oryza rufipogon G.*) from [here](https://figshare.com/articles/figure/Niche_and_range_shifts_between_rice_and_its_wild_progenitor/19076711?file=33903758).
+
+```{r}
+occ <- here('data', 'Datasets of occurrence records of rice and its wild progenitor.xlsx')
+progenitor <- read_excel(occ, skip = 6715) %>%
+  select(-x, -`the wild progenitor`) %>%
+  st_as_sf(coords = 2:1, crs = 4326) %>%
+  #st_crop(bbox) %>%
+  mutate(rice = 'present')
+
+ggplot(progenitor) +
+  geom_sf(data = coasts) +
+  geom_sf(size = 1, alpha = 0.5) +
+  theme_minimal()
+```
+
+```{r}
+chelsa_files <- list.files('../../CHELSA_V2_bio_clim', full.names = TRUE)[c(1:20, 25:70)]
+chelsa_names <- chelsa_files %>% str_split('_') %>% map_chr(~.x[5])
+
+chelsa <- chelsa_files %>%
+  read_stars(shorten = FALSE) %>%
+  #st_crop(bbox) %>%
+  setNames(chelsa_names)
+
+r <- terra::rast(chelsa)
+
+a <- terra::aggregate(r, factor = 10)
+
+s <- st_as_stars(a)
+```
+
+```{r}
+plot(chelsa['bio1'])
+```
+
+Sample background points.
+
+```{r}
+# quick and dirty way to mask the chelsa data for generating background points
+mask1 <- read_stars('../campanula/CHELSA_pet_penman_01_1981-2010_V.2.1.tif') %>%
+  #st_crop(bbox) %>%
+  st_as_stars()
+mask <- mask1 / mask1 ; rm(mask1)
+
+set.seed(1536)
+sdm_pts <- mask %>% 
+  as('Raster') %>% 
+  dismo::randomPoints(nrow(progenitor), st_coordinates(progenitor)) %>% 
+  as_tibble() %>%
+  st_as_sf(coords = c(1,2), crs = 4326) %>%
+  mutate(rice = 'background') %>%
+  bind_rows(progenitor, .)
+
+ggplot(sdm_pts) +
+  geom_sf(data = coasts) +
+  geom_sf(aes(color = rice), size = 1, alpha = 0.5) +
+  theme_minimal()
+```
+
+Extract the climate data at the presence and background points and fit a random forest model.
+
+```{r}
+dat <- st_extract(chelsa, sdm_pts) %>% 
+  bind_cols(sdm_pts) %>%
+  dplyr::select(-contains('geometry')) %>%
+  mutate(rice = as.factor(rice))
+
+mod <- rand_forest(mode = 'classification') %>%
+  set_engine('ranger', importance = 'permutation') %>%
+  fit(rice ~ ., data = dat)
+
+mod
+```
+
+```{r}
+vip(mod, geom = "point", num_features = 15)
+```
+
+```{r}
+vip(mod, geom = "point", num_features = 15)
+```
+
+```{r}
+pred <- chelsa %>%
+  st_crop(bbox) %>%
+  predict(mod, type = 'prob') 
+
+ggplot() +
+  geom_stars(data = pred['.pred_present'], downsample = 20) +
+  geom_sf(data = coasts, color = 'white') +
+  scale_fill_viridis_c() +
+  theme_void()
+```
+
+```{r}
+pred <- chelsa %>%
+  st_crop(bbox) %>%
+  predict(mod, type = 'prob') 
+
+ggplot() +
+  geom_stars(data = pred['.pred_present'], downsample = 20) +
+  geom_sf(data = coasts, color = 'white') +
+  scale_fill_viridis_c() +
+  theme_void()
+```
+
+```{r}
+library(embarcadero)
+## Run the BART model
+sdm <- bart(y.train=dat$rice,
+ x.train=dat[,-60],
+ keeptrees = TRUE)
+## Predict the species distribution
+map <- predict(sdm, as(split(wc), 'Raster'))
+## Visualize model performance
+summary(bart)
+```
+
+```{r}
+varimp.diag(dat[,-60], dat[,60], iter=50)
+step.model <- variable.step(x.data=dat[,-60],
+ y.data=dat[,60])
+step.model
+```
+
+```{r}
+test <- bart.step(x.data=dat[,-67],
+ y.data=as.numeric(dat[,67])-1)
+```
