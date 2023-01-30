@@ -44,10 +44,21 @@ occ <- here('data', 'Datasets of occurrence records of rice and its wild progeni
 progenitor <- read_excel(occ, skip = 6715) %>%
   select(-x, -`the wild progenitor`) %>%
   st_as_sf(coords = 2:1, crs = 4326) %>%
-  #st_crop(bbox) %>%
+  st_crop(bbox) %>%
+  mutate(rice = 'present')
+
+domestic <- read_excel(occ, n_max = 6714) %>%
+  remove_missing() %>%
+  select(-x, -Rice) %>%
+  st_as_sf(coords = 2:1, crs = 4326) %>%
+    st_crop(bbox) %>%
   mutate(rice = 'present')
 
 ggplot(progenitor) +
+  geom_sf(data = coasts) +
+  geom_sf(size = 1, alpha = 0.5) +
+  theme_minimal()
+ggplot(domestic) +
   geom_sf(data = coasts) +
   geom_sf(size = 1, alpha = 0.5) +
   theme_minimal()
@@ -91,7 +102,19 @@ sdm_pts <- mask %>%
   mutate(rice = 'background') %>%
   bind_rows(progenitor, .)
 
+sdm_pts2 <- mask %>% 
+  as('Raster') %>% 
+  dismo::randomPoints(nrow(domestic), st_coordinates(domestic)) %>%
+  as_tibble() %>%
+  st_as_sf(coords = c(1,2), crs = 4326) %>%
+  mutate(rice = 'background') %>%
+  bind_rows(domestic, .)
+
 ggplot(sdm_pts) +
+  geom_sf(data = coasts) +
+  geom_sf(aes(color = rice), size = 1, alpha = 0.5) +
+  theme_minimal()
+ggplot(sdm_pts2) +
   geom_sf(data = coasts) +
   geom_sf(aes(color = rice), size = 1, alpha = 0.5) +
   theme_minimal()
@@ -110,14 +133,22 @@ mod <- rand_forest(mode = 'classification') %>%
   fit(rice ~ ., data = dat)
 
 mod
+
+dat2 <- st_extract(chelsa, sdm_pts2) %>% 
+  bind_cols(sdm_pts2) %>%
+  dplyr::select(-contains('geometry'), -continent) %>%
+  mutate(rice = as.factor(rice))
+
+mod2 <- rand_forest(mode = 'classification') %>%
+  set_engine('ranger', importance = 'permutation') %>%
+  fit(rice ~ ., data = dat2)
+
+mod2
 ```
 
 ```{r}
 vip(mod, geom = "point", num_features = 15)
-```
-
-```{r}
-vip(mod, geom = "point", num_features = 15)
+vip(mod2, geom = "point", num_features = 15)
 ```
 
 ```{r}
@@ -125,8 +156,18 @@ pred <- chelsa %>%
   st_crop(bbox) %>%
   predict(mod, type = 'prob') 
 
+pred2 <- chelsa %>%
+  st_crop(bbox) %>%
+  predict(mod2, type = 'prob') 
+
 ggplot() +
   geom_stars(data = pred['.pred_present'], downsample = 20) +
+  geom_sf(data = coasts, color = 'white') +
+  scale_fill_viridis_c() +
+  theme_void()
+
+ggplot() +
+  geom_stars(data = pred2['.pred_present'], downsample = 20) +
   geom_sf(data = coasts, color = 'white') +
   scale_fill_viridis_c() +
   theme_void()
