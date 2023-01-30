@@ -186,25 +186,32 @@ ggplot() +
 ```
 
 ```{r}
+## Model selection with BART
+
+```{r}
+# install.packages('remotes')
+remotes::install_github('cjcarlson/embarcadero')
 library(embarcadero)
+xvars <- names(dat)[!(names(dat) == 'rice')]
 ## Run the BART model
-sdm <- bart(y.train=dat$rice,
- x.train=dat[,-60],
+sdm <- bart(y.train = as.numeric(dat$rice)-1,
+ x.train=dat[,xvars], 
  keeptrees = TRUE)
-## Predict the species distribution
-map <- predict(sdm, as(split(wc), 'Raster'))
+
+summary(sdm)
+
 ## Visualize model performance
-summary(bart)
+
 ```
 
 ```{r}
-varimp.diag(dat[,-60], dat[,60], iter=50)
-step.model <- variable.step(x.data=dat[,-60],
- y.data=dat[,60])
-step.model
+## Predict the species distribution
+map <- predict(sdm, as(merge(chelsa), 'RasterStack'))
 ```
 
 ```{r}
-test <- bart.step(x.data=dat[,-67],
- y.data=as.numeric(dat[,67])-1)
+sdm_step <- bart.step(x.data = dat[,xvars],
+ y.data=as.numeric(dat$rice)-1,
+ full = TRUE)
+```
 ```
