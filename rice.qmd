@@ -1,5 +1,5 @@
 ---
-title: "Rice Niche"
+title: "Rice Ecological Niche Modeling"
 author: "Nick Gauthier"
 date: "`r Sys.Date()`"
 format: html
@@ -17,8 +17,10 @@ library(tidymodels) # machine learning
 library(geodata) # geographic data
 library(here) # cross-platform directory structures
 library(readxl) # read excel spreadsheets
+library(exactextractr)
 # library(dismo) # generating background points for niche model, not loaded but should be installed
-
+library(doMC)
+available_cores <- parallel::detectCores(logical = TRUE)
 
 # visualization packages
 library(rnaturalearth) # country boundaries
@@ -37,9 +39,13 @@ coasts <- ne_coastline(returnclass = 'sf') %>%
   st_crop(bbox)
 ```
 
-Read in the GBIF/CHV occurrence data for rice's wild progenitor (*Oryza rufipogon G.*) from [here](https://figshare.com/articles/figure/Niche_and_range_shifts_between_rice_and_its_wild_progenitor/19076711?file=33903758).
+# Modeling the climatic niche of rice
 
-```{r}
+## Rice occurrence data
+
+Read in the GBIF/CHV occurrence data for rice's wild progenitor (Oryza rufipogon G.) from [here](https://www.sciencedirect.com/science/article/pii/S1574954122002631). Also load occurrence records of domestic rice from the same source, as well as occurrences of botanical remains thought to be *O. sativa japonica* from archaeological sites.
+
+```{r, fig.width=4, fig.height = 4, warning=FALSE}
 occ <- here('data', 'Datasets of occurrence records of rice and its wild progenitor.xlsx')
 progenitor <- read_excel(occ, skip = 6715) %>%
   select(-x, -`the wild progenitor`) %>%
@@ -54,49 +60,239 @@ domestic <- read_excel(occ, n_max = 6714) %>%
     st_crop(bbox) %>%
   mutate(rice = 'present')
 
-ggplot(progenitor) +
+arch <- here('data', 'Archaeological Rice Dataset.xlsx') %>%
+  read_excel() %>%
+  st_as_sf(coords = c('Longitude', 'Latitude'), crs = 4326) %>%
+  rename(age = `Est._Date_Median_BC`) %>%
+  arrange(-age)
+
+ggplot() +
   geom_sf(data = coasts) +
-  geom_sf(size = 1, alpha = 0.5) +
-  theme_minimal()
-ggplot(domestic) +
-  geom_sf(data = coasts) +
-  geom_sf(size = 1, alpha = 0.5) +
+  geom_sf(data = st_crop(domestic, bbox), alpha = .5) +
+  geom_sf(data = st_crop(progenitor, bbox), color = 'green', alpha = .5) +
+    labs(title = "Rice occurence data", subtitle = "O. sativa (modern, black), O. rufipogon (modern, green), O. sativa japonica (archaeological, red)", caption = 'source: GBIF, CHV, Rice Archaeological Database') +
+  geom_sf(data = arch, color = 'red', alpha = .5) +
   theme_minimal()
 ```
 
 ```{r}
-chelsa_files <- list.files('../../CHELSA_V2_bio_clim', full.names = TRUE)[c(1:20, 25:70)]
+oryza <- read_tsv('0266607-220831081235567.csv') %>%
+  st_as_sf(coords = c('decimalLongitude', 'decimalLatitude'), crs = 4326) %>%
+  st_crop(bbox)
+
+ggplot() +
+  geom_sf(data = coasts) +
+  geom_sf(data = oryza, alpha = .5) +
+  theme_minimal()
+```
+
+```{r}
+dgg <- read_sf('../future-anthromes/data/data-raw/dgg_land.gpkg') %>%
+  st_crop(bbox) 
+
+plot(dgg['L1_ID'], lwd = 0.1)
+```
+
+```{r, cache = TRUE}
+occ_dgg <- dgg %>%
+   mutate(oryza =  lengths(st_intersects(dgg, oryza)) > 0,
+          rufip = lengths(st_intersects(dgg, progenitor)) > 0,
+          sativa = lengths(st_intersects(dgg, domestic)) > 0,
+          arch = lengths(st_intersects(dgg, arch)) > 0,
+          geom = st_centroid(geom))
+
+
+ggplot() +
+    geom_sf(data = coasts) +
+  geom_sf(data = filter(occ_dgg, oryza == TRUE), size = .1) +
+    geom_sf(data = filter(occ_dgg, rufip == TRUE), size = .1, color = 'green') +
+      geom_sf(data = filter(occ_dgg, sativa == TRUE), size = .1, color = 'blue') +
+    geom_sf(data = filter(occ_dgg, arch == TRUE), size = .1, color = 'red') +
+  theme_minimal()
+```
+
+```{r}
+occ_dgg %>%
+  summary
+```
+
+```{r}
+chelsa_files <- list.files('../../CHELSA_V2_bio_clim', full.names = TRUE)[c(2:20)]#, 60:70)]#70)]
 chelsa_names <- chelsa_files %>% str_split('_') %>% map_chr(~.x[5])
 
 chelsa <- chelsa_files %>%
   read_stars(shorten = FALSE) %>%
-  #st_crop(bbox) %>%
+  st_crop(bbox) %>%
+  setNames(chelsa_names)
+```
+
+```{r}
+plot(is.na(chelsa[20]))
+```
+
+```{r, cache = TRUE}
+chelsa_rast <- chelsa_files %>%
+    terra::rast() %>%
+    setNames(chelsa_names)
+
+chelsa_dgg <- exact_extract(chelsa_rast, dgg, 'mean') %>% 
+  rename_with(~str_remove(.x, 'mean.'))
+```
+
+```{r eval = FALSE}
+saveRDS(chelsa_dgg, 'data/data-derived/chelsa_dgg.RDS')
+chelsa_dgg <- readRDS('data/data-derived/chelsa_dgg.RDS')
+```
+
+```{r}
+dat <- occ_dgg %>%
+  bind_cols(chelsa_dgg) %>%
+  st_drop_geometry()
+```
+
+```{r}
+dat %>%
+  filter(oryza) %>%
+  ggplot(aes(x = bio1)) +
+  geom_histogram()
+
+dat %>%
+  filter(arch) %>%
+  ggplot(aes(x = bio1)) +
+  geom_histogram()
+
+dat %>%
+  filter(rufip) %>%
+  ggplot(aes(x = bio1)) +
+  geom_histogram()
+
+dat %>%
+  filter(sativa) %>%
+  ggplot(aes(x = bio1)) +
+  geom_histogram()
+```
+
+```{r}
+library(themis)
+
+rec <- dat %>%
+  recipe() %>%
+  update_role(starts_with('bio'), new_role = 'predictor') %>%
+  update_role(rufip, new_role = 'outcome') %>%
+  update_role(ANL12_ID, new_role = 'id') %>%
+  step_bin2factor(all_outcomes(), ref_first = FALSE) %>%
+  step_normalize(all_predictors()) %>%
+  step_rm(!has_role(c('predictor', 'outcome', 'id'))) %>%
+  step_pca(all_predictors(), threshold = 0.9) %>%
+  step_downsample(all_outcomes(), skip = TRUE) 
+
+bart_mod <- parsnip::bart(mode = 'classification',
+                          trees = tune(),
+                          prior_terminal_node_coef = tune(),
+                          prior_terminal_node_expo = tune(),
+                          prior_outcome_range = tune())
+
+wflw <- workflow(rec, bart_mod)
+```
+
+```{r}
+set.seed(12345)
+splits <- initial_split(dat, strata = rufip)
+train <- training(splits)
+folds <- vfold_cv(train, v = 5, strata = rufip)
+```
+
+```{r}
+registerDoMC(cores = available_cores)
+
+ctrl <- control_bayes(verbose = TRUE, uncertain = 10, no_improve = Inf, seed = 8154)
+
+tuning <- tune_bayes(bart_mod, rec, folds, initial = 10, control = ctrl)
+
+registerDoSEQ()
+```
+
+```{r}
+test <- fit(wflw, train)
+test %>%
+  extract_fit_engine() %>%
+  embarcadero::partial(x.vars = c('PC1', 'PC2', 'PC3', 'PC4', 'PC5'),
+                       smooth = 3)
+```
+
+```{r}
+prep(rec) %>% juice
+```
+
+```{r}
+sdm <- fit_resamples(wflw, folds)
+```
+
+```{r}
+library(mgcv)
+rec %>% prep %>% juice %>%
+  gam(arch ~ s(bio1) + s(bio12) + s(bio15) + s(bio2) + s(bio3), data = ., family = binomial()) %>%
+  plot(trans = plogis)
+```
+
+Look at the distribution of ages of archaeological rice remains.
+
+```{r}
+rice %>%
+  ggplot(aes(age)) +
+  geom_histogram() +
+  scale_x_continuous(breaks = seq(-14000, 1000, 2000))
+```
+
+And changing distributions over time.
+
+```{r, fig.width= 8, fig.height = 6}
+rice %>%
+  mutate(millennium = floor(age/1000)) %>%
+ggplot() +
+  geom_sf() +
+  scale_color_viridis_c() +
+  facet_wrap(~millennium) +
+   geom_sf(data = coasts) +
+  theme_bw()
+```
+
+## Climate data
+
+Load the CHELSA V2 bioclimate layers.
+
+```{r}
+chelsa_files <- list.files('../../CHELSA_V2_bio_clim', full.names = TRUE)[c(2:20)]#, 60:70)]#70)]
+chelsa_names <- chelsa_files %>% str_split('_') %>% map_chr(~.x[5])
+
+chelsa <- chelsa_files %>%
+  read_stars(shorten = FALSE) %>%
+  st_crop(bbox) %>%
   setNames(chelsa_names)
 
-r <- terra::rast(chelsa)
+#r <- terra::rast(chelsa)
 
-a <- terra::aggregate(r, factor = 10)
+#a <- terra::aggregate(r, factor = 10)
 
-s <- st_as_stars(a)
+#s <- st_as_stars(a)
+plot(chelsa)
 ```
 
-```{r}
-plot(chelsa['bio1'])
-```
+## Ecological niche modeling
 
-Sample background points.
+Sample background points from the CHELSA data for the ENM.
 
-```{r}
+```{r cache = TRUE}
 # quick and dirty way to mask the chelsa data for generating background points
 mask1 <- read_stars('../campanula/CHELSA_pet_penman_01_1981-2010_V.2.1.tif') %>%
-  #st_crop(bbox) %>%
+  st_crop(bbox) %>% # crop mask to bbox?
   st_as_stars()
 mask <- mask1 / mask1 ; rm(mask1)
 
 set.seed(1536)
 sdm_pts <- mask %>% 
   as('Raster') %>% 
-  dismo::randomPoints(nrow(progenitor), st_coordinates(progenitor)) %>% 
+  dismo::randomPoints(nrow(progenitor), st_coordinates(progenitor)) %>%
   as_tibble() %>%
   st_as_sf(coords = c(1,2), crs = 4326) %>%
   mutate(rice = 'background') %>%
@@ -110,11 +306,33 @@ sdm_pts2 <- mask %>%
   mutate(rice = 'background') %>%
   bind_rows(domestic, .)
 
+sdm_pts3 <- mask %>% 
+  as('Raster') %>% 
+  dismo::randomPoints(nrow(arch), st_coordinates(arch)) %>%
+  as_tibble() %>%
+  st_as_sf(coords = c(1,2), crs = 4326) %>%
+  mutate(rice = 'background') %>%
+  bind_rows(mutate(arch, rice = 'present'), .)
+
+sdm_pts4 <- mask %>% 
+  as('Raster') %>% 
+  dismo::randomPoints(nrow(oryza), st_coordinates(oryza)) %>%
+  as_tibble() %>%
+  st_as_sf(coords = c(1,2), crs = 4326) %>%
+  mutate(rice = 'background') %>%
+  bind_rows(mutate(oryza, rice = 'present'), .)
+
 ggplot(sdm_pts) +
   geom_sf(data = coasts) +
   geom_sf(aes(color = rice), size = 1, alpha = 0.5) +
   theme_minimal()
+
 ggplot(sdm_pts2) +
+  geom_sf(data = coasts) +
+  geom_sf(aes(color = rice), size = 1, alpha = 0.5) +
+  theme_minimal()
+
+ggplot(sdm_pts3) +
   geom_sf(data = coasts) +
   geom_sf(aes(color = rice), size = 1, alpha = 0.5) +
   theme_minimal()
@@ -144,12 +362,28 @@ mod2 <- rand_forest(mode = 'classification') %>%
   fit(rice ~ ., data = dat2)
 
 mod2
+
+dat3 <- st_extract(chelsa, sdm_pts3) %>% 
+  bind_cols(sdm_pts3) %>%
+  dplyr::select(-contains('geometry'), -c(Country, Site, age)) %>%
+  mutate(rice = as.factor(rice))
+
+mod3 <- rand_forest(mode = 'classification') %>%
+  set_engine('ranger', importance = 'permutation') %>%
+  fit(rice ~ ., data = dat3)
+
+mod3
 ```
+
+Check the variable importances.
 
 ```{r}
 vip(mod, geom = "point", num_features = 15)
 vip(mod2, geom = "point", num_features = 15)
+vip(mod3, geom = "point", num_features = 15)
 ```
+
+Map the predicted niche of each dataset.
 
 ```{r}
 pred <- chelsa %>%
@@ -159,6 +393,10 @@ pred <- chelsa %>%
 pred2 <- chelsa %>%
   st_crop(bbox) %>%
   predict(mod2, type = 'prob') 
+
+pred3 <- chelsa %>%
+  st_crop(bbox) %>%
+  predict(mod3, type = 'prob') 
 
 ggplot() +
   geom_stars(data = pred['.pred_present'], downsample = 20) +
@@ -171,27 +409,24 @@ ggplot() +
   geom_sf(data = coasts, color = 'white') +
   scale_fill_viridis_c() +
   theme_void()
-```
-
-```{r}
-pred <- chelsa %>%
-  st_crop(bbox) %>%
-  predict(mod, type = 'prob') 
 
 ggplot() +
-  geom_stars(data = pred['.pred_present'], downsample = 20) +
+  geom_stars(data = pred3['.pred_present'], downsample = 20) +
   geom_sf(data = coasts, color = 'white') +
   scale_fill_viridis_c() +
   theme_void()
 ```
 
-```{r}
 ## Model selection with BART
+
+Use bayesian additive regression trees for more interpretable niche modeling.
 
 ```{r}
 # install.packages('remotes')
 remotes::install_github('cjcarlson/embarcadero')
+install.packages('reshape')
 library(embarcadero)
+
 xvars <- names(dat)[!(names(dat) == 'rice')]
 ## Run the BART model
 sdm <- bart(y.train = as.numeric(dat$rice)-1,
@@ -209,9 +444,190 @@ summary(sdm)
 map <- predict(sdm, as(merge(chelsa), 'RasterStack'))
 ```
 
+```{r cache = TRUE}
+sdm_step <- bart.step(x.data = dat[,xvars], 
+                      y.data = as.numeric(dat$rice) - 1,
+                      full = TRUE)
+```
+
+BIO1 = Annual Mean Temperature
+
+BIO12 = Annual Precipitation
+
+BIO15 = Precipitation Seasonality (Coefficient of Variation)
+
+BIO2 = Mean Diurnal Range (Mean of monthly (max temp - min temp))
+
+BIO3 = Isothermality (BIO2/BIO7) (×100)
+
+```{r fig.width = 10, fig.height=10}
+sdm_simp <- bart(y.train = as.numeric(dat$rice)-1,
+ x.train=dat[,c('bio1',  'bio12', 'bio15', 'bio2', 'bio3')], 
+ keeptrees = TRUE)
+
+partial(sdm_simp, 
+        x.vars = c('bio1',  'bio12', 'bio15', 'bio2', 'bio3'),
+    ci = TRUE,
+    panel = TRUE,
+    smooth = 3)
+```
+
 ```{r}
-sdm_step <- bart.step(x.data = dat[,xvars],
- y.data=as.numeric(dat$rice)-1,
- full = TRUE)
+p <- pd2bart(sdm_simp, xind = c('bio1', 'bio12'), pl = TRUE)
 ```
+
+```{r}
+ggplot() +
+  geom_stars(data = chelsa['bio1'] >= 20, downsample = 20) +
+  geom_sf(data = coasts, color = 'white')
+ggplot() +
+  geom_stars(data = chelsa['bio12'] >= 1000, downsample = 20) +
+  geom_sf(data = coasts, color = 'white')
+
+chelsa %>%
+  st_crop(bbox) %>%
+  transmute(test = bio10 > 26) %>%
+  plot()
 ```
+
+```{r}
+covs <- chelsa %>%
+  st_crop(bbox) %>%
+  .[c(1,4, 7,12,13),,] %>%
+  merge() %>%
+  as('Raster')
+
+ggplot() +
+  geom_stars(data = st_as_stars(covs)[,,,1], downsample = 30) +
+  scale_fill_viridis_c() +
+  geom_sf(data = coasts, color = 'white')
+
+ggplot() +
+  geom_stars(data = st_as_stars(covs)[,,,2], downsample = 30) +
+  scale_fill_viridis_c() +
+  geom_sf(data = coasts, color = 'white')
+
+ggplot() +
+  geom_stars(data = st_as_stars(covs)[,,,3], downsample = 30) +
+  scale_fill_viridis_c() +
+  geom_sf(data = coasts, color = 'white')
+
+ggplot() +
+  geom_stars(data = st_as_stars(covs)[,,,4], downsample = 30) +
+  scale_fill_viridis_c() +
+  geom_sf(data = coasts, color = 'white')
+
+ggplot() +
+  geom_stars(data = st_as_stars(covs)[,,,5], downsample = 30) +
+  scale_fill_viridis_c() +
+  geom_sf(data = coasts, color = 'white')
+
+```
+
+```{r}
+sp.bio <- spartial(sdm_step, covs, x.vars = c('bio1', 'bio12', 'bio15', 'bio2', 'bio3'), equal = TRUE) %>%
+  st_as_stars()
+
+ggplot() +
+  geom_stars(data = sp.bio, downsample = c(20,20,0)) +
+  geom_sf(data = coasts, color = 'white') +
+  facet_wrap(~band) +
+  scale_fill_viridis_c(option = 'magma') +
+  theme_void()
+```
+
+## CHELSA-TRACE
+
+```{r}
+bio_trace <- '../../Data/CHELSA/chelsa_trace/bio01/' %>%
+  list.files(full.names = TRUE) %>%
+  .[c(36, 14, 114)] %>%
+  read_stars() %>%
+  st_crop(bbox) 
+
+plot(bio_trace >= 20)
+plot(bio_trace[2] >= 20)
+plot(bio_trace[3] >= 20)
+plot(chelsa[1] >= 20)
+```
+
+```{r}
+bio_trace2 <- '../../Data/CHELSA/chelsa_trace/bio12/' %>%
+  list.files(full.names = TRUE) %>%
+  .[c(36, 14, 114)] %>%
+  read_stars() %>%
+  st_crop(bbox) 
+
+plot(bio_trace2 >= 1000)
+plot(bio_trace2[2] >= 1000)
+plot(bio_trace2[3] >= 1000)
+plot(chelsa[4] >= 1000)
+
+ggplot() +
+  geom_stars(data = bio_trace2[3] - bio_trace2[1], downsample = 20) +
+  scale_fill_distiller(palette = 'RdBu', limits = c(-1100, 1100))
+```
+
+## Global Rice Data
+
+```{r}
+rice_map <- list(here('data', 'monfreda', 'rice_YieldPerHectare.tif'),
+     here('data', 'monfreda', 'rice_HarvestedAreaHectares.tif')) %>%
+  read_stars() %>%
+  st_crop(bbox)
+
+ggplot() +
+  geom_stars(data = rice_map) +
+  scale_fill_viridis_c() +
+  geom_sf(data = coasts, color = 'white')
+
+ggplot() +
+  geom_stars(data = rice_map[2]) +
+  scale_fill_viridis_c(trans = 'log') +
+  geom_sf(data = coasts, color = 'white')
+```
+
+```{r}
+rice_map2 <- crop_spam('rice', var = 'area') %>%
+  st_as_stars() %>%
+  st_crop(bbox)
+
+ggplot() +
+  geom_stars(data = rice_map2[,,,2]) +
+  scale_fill_viridis_c() +
+  geom_sf(data = coasts, color = 'white')
+```
+
+```{r}
+library(mgcv)
+library(stars)
+
+age_gam <- bind_cols(rice, st_coordinates(rice)) %>%
+  rename(x =X, y = Y) %>%
+  select(age, x, y) %>%
+  filter(age > -1200) %>%
+  gam(age ~ s(x, y), data = .)
+
+as_tibble(ref) %>%
+  mutate( pred = predict(age_gam, as_tibble(ref), type = 'response')) 
+
+  ggplot() +
+  geom_stars(data = age) +
+    geom_sf(data = coasts) +
+    scale_fill_viridis_c(direction = -1)
+  
+  
+
+```
+
+## 
+
+TODO
+
+-   5min CHELSA data
+
+-   Oryza genus model
+
+-   world vs asia comparison
+
+-   xgboost
