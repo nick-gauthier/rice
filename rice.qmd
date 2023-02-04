@@ -19,6 +19,9 @@ library(here) # cross-platform directory structures
 library(readxl) # read excel spreadsheets
 library(exactextractr)
 # library(dismo) # generating background points for niche model, not loaded but should be installed
+library(themis)
+
+# parallel processing
 library(doMC)
 available_cores <- parallel::detectCores(logical = TRUE)
 
@@ -116,27 +119,32 @@ occ_dgg %>%
   summary
 ```
 
-```{r}
-chelsa_files <- list.files('../../CHELSA_V2_bio_clim', full.names = TRUE)[c(2:20)]#, 60:70)]#70)]
-chelsa_names <- chelsa_files %>% str_split('_') %>% map_chr(~.x[5])
+## Climate data
 
-chelsa <- chelsa_files %>%
-  read_stars(shorten = FALSE) %>%
-  st_crop(bbox) %>%
-  setNames(chelsa_names)
-```
+Load the CHELSA V2 bioclimate layers. They come at a native 1km resolution, which is a bit too optimistic. We'll extract them to a larger equal-area grid system.
 
-```{r}
-plot(is.na(chelsa[20]))
-```
+```{r cache = TRUE}
+chelsa_files <- list.files('../../CHELSA_V2_bio_clim', 
+                           full.names = TRUE)[c(2:20)]#, 60:70)]#70)]
 
-```{r, cache = TRUE}
-chelsa_rast <- chelsa_files %>%
-    terra::rast() %>%
-    setNames(chelsa_names)
+chelsa_names <- chelsa_files %>% 
+  str_split('_') %>% 
+  map_chr(~.x[5])
 
-chelsa_dgg <- exact_extract(chelsa_rast, dgg, 'mean') %>% 
+bbox <- terra::ext(60, 150, -20, 50)
+
+chelsa <- terra::rast(chelsa_files) %>%
+  terra::crop(bbox) %>%
+  exact_extract(dgg, 'mean') %>% 
   rename_with(~str_remove(.x, 'mean.'))
+
+#chelsa <- chelsa_files %>%
+#  read_stars(shorten = FALSE) %>%
+#  st_crop(bbox) %>%
+#  setNames(chelsa_names)
+#chelsa_rast <- chelsa_files %>%
+#    terra::rast() %>%
+#    setNames(chelsa_names)
 ```
 
 ```{r eval = FALSE}
@@ -144,10 +152,19 @@ saveRDS(chelsa_dgg, 'data/data-derived/chelsa_dgg.RDS')
 chelsa_dgg <- readRDS('data/data-derived/chelsa_dgg.RDS')
 ```
 
+## Ecological niche modeling
+
+Sample background points from the CHELSA data for the ENM.
+
 ```{r}
 dat <- occ_dgg %>%
   bind_cols(chelsa_dgg) %>%
   st_drop_geometry()
+```
+
+```{r eval = FALSE}
+saveRDS(dat, 'data/data-derived/dat.RDS')
+dat <- readRDS('data/data-derived/dat.RDS')
 ```
 
 ```{r}
@@ -172,94 +189,323 @@ dat %>%
   geom_histogram()
 ```
 
-```{r}
-library(themis)
+So the question here is whether to include background cells where there are occurrence cells. -- this kinda violates the point of the "background", but it does feel weird to copy things
 
-rec <- dat %>%
+```{r}
+#dat2 <- dat %>%
+#  mutate(rufip = FALSE) %>%
+#  bind_rows(filter(dat, rufip == TRUE))
+  
+set.seed(12345)
+# is stratification actually happening here? the diff is more than 10%
+splits <- initial_split(dat, strata = rufip)
+train <- training(splits)
+folds <- vfold_cv(train, v = 5, repeats = 5, strata = rufip)
+
+```
+
+establish some metrics
+
+```{r}
+c_metrics <- metric_set(roc_auc, j_index, sens, spec, pr_auc, kap, f_meas, precision)
+```
+
+Get the class imbalances.
+
+```{r}
+classes <- table(train$rufip)
+occ_ratio <- classes[2]/classes[1]
+occ_ratio
+```
+
+### First Tuning
+
+#### J
+
+J index (sens + spec -1, 1) means no false positives and no false negatives. downsampling within and without do well . down10 is consistently worse, and the worse is normal without any downsampling at all. so the downsampling is increasing our J index, because without it we were probably getting degenerate models that just always predicted absences or something.
+
+```{r}
+rank_results(tuning, 'j_index') %>%
+  filter(.metric == 'j_index') %>%
+  ggplot(aes(rank, mean)) +
+  geom_point() +
+  labs(y = 'j_index')
+```
+
+#### Kappa
+
+Kappa is like balanced accuracy, down10 normal and down10 hellinger by far. kappa is dependent on the prevalence of the species. so it really likes down10 for some reason, then are the normal recipes withot , then with the downsaling in the rf. and the absolute worst at zero are the double downsamples. so the takeaway from this
+
+```{r}
+rank_results(tuning, 'kap') %>%
+  filter(.metric == 'kap') %>%
+     ggplot(aes(rank, mean)) +
+  geom_point() +
+  labs(y = 'kap')
+```
+
+#### AUC scores
+
+[This paper](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.13140) says area under the precision recall curve (AUC-PR) and precision are good for sdm on presence-background data. Precision is the probability that a predicted location will have an observed species in it. Here the model likes down1_ds. Then there is a clear second tier, led by norm_norm, then norm_ds, followed by down10 and down 1. far and away the wrose is down10_ds. Interesting, here the big difference was between downsampilng everything and nothing basically, and both turned out ok. In general this is going to be influenced by the prevalence so in
+
+```{r}
+rank_results(tuning, 'pr_auc') %>%
+  filter(.metric == 'pr_auc') %>%
+    ggplot(aes(rank, mean)) +
+  geom_point() +
+  labs(y = 'pr_auc')
+```
+
+But AUC-ROC is still good for *potential* ranges.
+
+> However, both AUC-PR and precision penalize false positives, and so may be less appropriate for modelling species' potential ranges. This is because locations may be correctly identified as having high potential suitability, despite being currently unoccupied. AUC-ROC has similarly been recognized to be most useful for modelling realized rather than potential ranges (Jiménez-Valverde, [**2012**](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.13140#mee313140-bib-0027)).
+
+In that case, roc_auc performs well for everything except **down1_ds**. These are the same that perform well for the AUC-PR. But norm hell_ds is the best. That suggests that the even downsampling makes the extrapolation model work better. but the regular down1 ones are fine. so that suggests downsampling on both sides of the random forest is whats really bad. Everything else is great, but notabley the hellinger_ds is top and the norm_hellinger without downsampling is "worst." This is one of the few cases where hellinger makes a difference, but its prety small
+
+This metric selects basically anything except the double downsample. which is reasonable.
+
+```{r}
+rank_results(tuning, 'roc_auc') %>%
+  filter(.metric == 'roc_auc') %>%
+  ggplot(aes(rank, mean)) +
+  geom_point() +
+  labs(y = 'roc_auc')
+```
+
+```{r}
+autoplot(tuning)
+```
+
+### Takeaways
+
+I'm noticing hellinger is usually slightly better than the normal alternative, but overall everything else matters more. Well, is hellinger ever any worse? Once.
+
+So after hellinger how we think about downsampling within the folds?
+
+don't do in folds and in bootstraps -- that seems to do poorly for everything but precision. I guess that may be undersampling the potential background points?
+
+### Second tuning
+
+Now we've decided to do the within RF subsampling rather than outer rf subsampling. [This paper](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0201904#sec002) suggests even subsampling is desirable, although stratified subsampling also works. But in general you can use the oob error estimates and they'll be fairly unbaised. but you have to subsample 0.632\*lowclassprob instead of bootstrap for reasons they cite.
+
+> An approach called "balanced random forest" \[[34](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0201904#pone.0201904.ref034)\] tackles this imbalance by drawing the same numbers of observations with replacement from each class for each tree yielding trees that do not preferentially predict a specific class. 
+>
+> For unbalanced data, both when sampling the same numbers of observations (balanced RF) and when using sampling fractions that are proportional to the class sizes, the class-specific OOB errors are (almost) unbiased with respect to the corresponding class-specific test errors. Sampling the same numbers of observations from each class yields a RF that has the same prediction performance independent of the class an observation comes from. For observations from the smaller class prediction performance is considerably higher than that obtained when using sampling fractions that are proportional to the class sizes. Nevertheless, for observations from the larger class, sampling fractions that are proportional to the class sizes performs slightly better than sampling the same numbers from each class. *In unbalanced settings, in which there is a strong interest in predicting observations from the smaller classes well, sampling the same number of observations from each class might therefore be the method of choice.*
+>
+> Two main conclusions are drawn from these studies: (i) When choosing the *mtry* value using the OOB error, stratified subsampling can yield downwardly biased error rate estimates if the stratified OOB error that is smallest across all *mtry* values is used as an estimate of the generalization error; (ii) This bias can be greatly reduced by constructing a new RF using the *mtry* value that was chosen based on the stratified OOB error, and reporting the stratified OOB error of the new RF as an estimate of the generalization error. The latter point can be justified by the very small downward bias from procedure (2) that is observed for stratified subsampling in the analysis, even so the simulation setting with the highest variability of the OOB error estimates was used. **Nevertheless, the gold standard procedure is using stratified CV for error estimation, choosing an optimal *mtry* value using the stratified OOB error in each iteration of the stratified CV.**
+
+```{r}
+rec <- train %>%
   recipe() %>%
   update_role(starts_with('bio'), new_role = 'predictor') %>%
   update_role(rufip, new_role = 'outcome') %>%
   update_role(ANL12_ID, new_role = 'id') %>%
-  step_bin2factor(all_outcomes(), ref_first = FALSE) %>%
-  step_normalize(all_predictors()) %>%
-  step_rm(!has_role(c('predictor', 'outcome', 'id'))) %>%
-  step_pca(all_predictors(), threshold = 0.9) %>%
-  step_downsample(all_outcomes(), skip = TRUE) 
+  step_bin2factor(all_outcomes()) %>%
+  step_rm(!has_role(c('predictor', 'outcome', 'id')))
+ 
+rf_mod <- rand_forest(mode = 'classification',
+                         trees = 1000,
+                         mtry = tune(),
+                         min_n = tune()) %>%
+  set_engine('ranger',
+             replace = FALSE,
+             sample.fraction = c(0.632 * occ_ratio, 
+                                 0.632 * occ_ratio))
 
-bart_mod <- parsnip::bart(mode = 'classification',
-                          trees = tune(),
-                          prior_terminal_node_coef = tune(),
-                          prior_terminal_node_expo = tune(),
-                          prior_outcome_range = tune())
+wflw <- workflow(rec, rf_mod)
 
-wflw <- workflow(rec, bart_mod)
+registerDoMC(cores = available_cores)
+res <- tune_bayes(wflw, folds, metrics = c_metrics)
+registerDoSEQ()
 ```
 
 ```{r}
-set.seed(12345)
-splits <- initial_split(dat, strata = rufip)
-train <- training(splits)
-folds <- vfold_cv(train, v = 5, strata = rufip)
+autoplot(res)
+```
+
+This selects a model with mtry = 6 and min_n = 4
+
+```{r}
+best_rf <- select_best(res)
+best_rf
+saveRDS(best_rf, here('data/data-derived/best_rf.rds'))
+```
+
+### Variable importance
+
+Now the winning model will be retrained on the training data and we'll do some variable importance exploration. Because we selected a low mtry we're getting a more informative view.
+
+dfa
+
+The VIP gives the following variables:
+
+1.  BIO6 = Min Temperature of Coldest Month
+2.  BIO11 = Mean Temperature of Coldest Quarter
+3.  BIO15 = Precipitation Seasonality (Coefficient of Variation)
+4.  BIO4 = Temperature Seasonality (standard deviation ×100)
+5.  BIO7 = Temperature Annual Range (BIO5-BIO6)
+6.  BIO18 = Precipitation of Warmest Quarter
+7.  BIO1 = Annual Mean Temperature\
+
+6 and 11 were shown to dominate the first pc in \[this paper\](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.12244)
+
+```{r}
+final_mod <- rand_forest(mode = 'classification',
+                         trees = 1000,
+                         mtry = 6,
+                         min_n = 4) %>%
+  set_engine('ranger',
+             importance = 'permutation',
+             replace = FALSE,
+             sample.fraction = c(0.632 * occ_ratio, 
+                                 0.632 * occ_ratio))
+
+final_fit <- last_fit(final_mod, rec, splits, metrics = c_metrics)
+
+extract_fit_engine(final_fit) %>%
+  vip(geom = "point", num_features = 19)
+```
+
+```{r}
+prep(rec) %>% juice %>%
+  select(-ANL12_ID) %>%
+  recipe(rufip ~ .) %>%
+  step_corr(all_numeric_predictors()) %>%
+  prep %>%
+  juice
+```
+
+```{r}
+prep(rec) %>% 
+  juice %>%
+  select(-ANL12_ID) %>%
+  recipe(rufip ~ .) %>%
+  step_normalize(all_predictors()) %>%
+  step_pca(all_predictors()) %>%
+  prep %>%
+  tidy(2)
+```
+
+```{r}
+collect_metrics(final_fit)
+```
+
+### Spatial Predictions
+
+```{r}
+chelsa <- terra::rast(chelsa_files) %>%
+  terra::crop(bbox, datatype = 'FLT4S') %>%
+  setNames(chelsa_names)
+
+pred <- predict(chelsa, extract_fit_parsnip(final_fit), 
+                type = 'prob', cores = available_cores / 2) 
+
+saveRDS(pred, here('data/data-derived/pred_rufip.rds'))
+
+pred_coarse <- terra::aggregate(pred, fact = 10, cores = available.cores)
+
+ggplot() +
+  geom_stars(data = st_as_stars(pred_coarse[[1]])) +
+  geom_sf(data = coasts, color = 'white') +
+  scale_fill_viridis_c() +
+  theme_void()
+
+ggplot() +
+  geom_stars(data = st_as_stars(pred_coarse[[2]])) +
+  geom_sf(data = coasts, color = 'white') +
+  scale_fill_viridis_c(option = 'magma') +
+  theme_void()
+
+```
+
+### Partial Dependence Plots 
+
+```{r}
+library(pdp)
+
+final_fit %>%
+  extract_fit_engine() %>%
+partial(pred.var = "bio1", train = train) %>%
+              plotPartial(smooth = TRUE, lwd = 2)
+```
+
+```{r}
+final_fit %>%
+  extract_fit_engine() %>%
+partial(pred.var = "bio6", train = train) %>%
+              plotPartial(smooth = TRUE, lwd = 2)
+```
+
+## BART
+
+```{r}
+#bart_mod <- parsnip::bart(mode = 'classification'#,
+                         # trees = tune(),
+                        #  prior_terminal_node_coef = tune(),
+                         # prior_terminal_node_expo = tune(),
+                        #  prior_outcome_range = tune()
+ #                         )
+
+#wflw <- workflow(rec, bart_mod)
 ```
 
 ```{r}
 registerDoMC(cores = available_cores)
 
-ctrl <- control_bayes(verbose = TRUE, uncertain = 10, no_improve = Inf, seed = 8154)
+ctrl <- control_bayes(verbose = TRUE, seed = 8154)
 
-tuning <- tune_bayes(bart_mod, rec, folds, initial = 10, control = ctrl)
+tuning <- tune_bayes(bart_mod, rec, folds, initial = 20, control = ctrl, metrics = c_metrics)
 
 registerDoSEQ()
 ```
 
 ```{r}
-test <- fit(wflw, train)
-test %>%
+autoplot(tuning)
+```
+
+```{r}
+select_best(tuning)
+```
+
+```{r}
+best_bart <- select_best(tuning) #'mn_log_loss'
+
+saveRDS(best_bart, here('data/data-derived/best_bart.rds'))
+
+best_bart
+```
+
+```{r}
+final_mod <- finalize_workflow(wflw, best_bart) %>% 
+    last_fit(splits, metrics = c_metrics)
+collect_metrics(final_mod)
+```
+
+```{r}
+rf_fit <- rand_forest(mode = 'classification') %>%
+  workflow(rec, .) %>%
+  last_fit(splits, metrics = c_metrics) 
+
+collect_metrics(rf_fit)
+```
+
+```{r}
+final_mod %>%
   extract_fit_engine() %>%
   embarcadero::partial(x.vars = c('PC1', 'PC2', 'PC3', 'PC4', 'PC5'),
                        smooth = 3)
 ```
 
 ```{r}
-prep(rec) %>% juice
+prep(rec) %>%
+  tidy(4, matrix = 'u') %>%
+  group_by(component) %>%
+  arrange(-abs(value), .by_group = TRUE)
 ```
 
 ```{r}
 sdm <- fit_resamples(wflw, folds)
 ```
-
-```{r}
-library(mgcv)
-rec %>% prep %>% juice %>%
-  gam(arch ~ s(bio1) + s(bio12) + s(bio15) + s(bio2) + s(bio3), data = ., family = binomial()) %>%
-  plot(trans = plogis)
-```
-
-Look at the distribution of ages of archaeological rice remains.
-
-```{r}
-rice %>%
-  ggplot(aes(age)) +
-  geom_histogram() +
-  scale_x_continuous(breaks = seq(-14000, 1000, 2000))
-```
-
-And changing distributions over time.
-
-```{r, fig.width= 8, fig.height = 6}
-rice %>%
-  mutate(millennium = floor(age/1000)) %>%
-ggplot() +
-  geom_sf() +
-  scale_color_viridis_c() +
-  facet_wrap(~millennium) +
-   geom_sf(data = coasts) +
-  theme_bw()
-```
-
-## Climate data
-
-Load the CHELSA V2 bioclimate layers.
 
 ```{r}
 chelsa_files <- list.files('../../CHELSA_V2_bio_clim', full.names = TRUE)[c(2:20)]#, 60:70)]#70)]
@@ -419,7 +665,7 @@ ggplot() +
 
 ## Model selection with BART
 
-Use bayesian additive regression trees for more interpretable niche modeling.
+Use Bayesian additive regression trees for more interpretable niche modeling.
 
 ```{r}
 # install.packages('remotes')
@@ -461,7 +707,7 @@ BIO2 = Mean Diurnal Range (Mean of monthly (max temp - min temp))
 BIO3 = Isothermality (BIO2/BIO7) (×100)
 
 ```{r fig.width = 10, fig.height=10}
-sdm_simp <- bart(y.train = as.numeric(dat$rice)-1,
+sdm_simp <- bart(y.train = as.numeric(dat$rufip)-1, # or rice!
  x.train=dat[,c('bio1',  'bio12', 'bio15', 'bio2', 'bio3')], 
  keeptrees = TRUE)
 
@@ -618,6 +864,39 @@ as_tibble(ref) %>%
   
   
 
+```
+
+## 
+
+## Archaeological Data
+
+```{r}
+library(mgcv)
+rec %>% prep %>% juice %>%
+  gam(arch ~ s(bio1) + s(bio12) + s(bio15) + s(bio2) + s(bio3), data = ., family = binomial()) %>%
+  plot(trans = plogis)
+```
+
+Look at the distribution of ages of archaeological rice remains.
+
+```{r}
+rice %>%
+  ggplot(aes(age)) +
+  geom_histogram() +
+  scale_x_continuous(breaks = seq(-14000, 1000, 2000))
+```
+
+And changing distributions over time.
+
+```{r, fig.width= 8, fig.height = 6}
+rice %>%
+  mutate(millennium = floor(age/1000)) %>%
+ggplot() +
+  geom_sf() +
+  scale_color_viridis_c() +
+  facet_wrap(~millennium) +
+   geom_sf(data = coasts) +
+  theme_bw()
 ```
 
 ## 
