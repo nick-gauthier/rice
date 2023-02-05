@@ -1,0 +1,202 @@
+---
+title: "ecocrop"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+install.packages(c("meteor", "terra"))
+remotes::install_github("cropmodels/Recocrop")
+```
+
+```{r}
+library(Recocrop)
+library(tidyverse)
+library(terra)
+```
+
+## Japonica
+
+```{r}
+ecocropPars('Rice paddy (Japonica)') %>%
+  ecocrop() %>%
+  plot()
+ecocropPars('Rice upland (Japonica)') %>%
+  ecocrop() %>%
+  plot()
+ecocropPars('Rice, paddy (Indica)') %>%
+  ecocrop() %>%
+  plot()
+ecocropPars('Rice upland (Indica)') %>%
+  ecocrop() %>%
+  plot()
+
+ecocropPars('Bulu rice (Javanica)') %>%
+  ecocrop() %>%
+  plot()
+ecocropPars('African rice') %>%
+  ecocrop() %>%
+  plot()
+```
+
+```{r}
+thresh <- factor(c('min', 'low_opt', 'high_opt', 'max'),
+       levels = c('min', 'low_opt', 'high_opt', 'max'))
+
+library(tidyverse)
+rice_list <- list('Rice paddy (Japonica)',
+     'Rice upland (Japonica)',
+     'Rice, paddy (Indica)',
+    'Rice upland (Indica)',
+    'Bulu rice (Javanica)',
+    'African rice') 
+
+params <- rice_list %>%
+  set_names(rice_list) %>%
+  map(~ecocropPars(.x)$parameters) %>%
+  map(as_tibble) %>%
+  map(~mutate(.x, threshold = thresh, .before = 1)) %>%
+  list_rbind(names_to = 'type')
+```
+
+```{r}
+params %>%
+  mutate(suitability = if_else(threshold %in% c('min', 'max'), 0, 1)) %>%
+  select(type, suitability, tavg) %>%
+  ggplot(aes(tavg, suitability)) +
+  geom_line(linewidth = 1.2) +
+  geom_area(aes(fill = type)) +
+  geom_point() +
+  facet_wrap(~type) +
+  theme_bw()
+```
+
+```{r}
+params %>%
+  select(type, threshold, tavg) %>%
+  pivot_wider(names_from = threshold, values_from = tavg) %>%
+  ggplot(aes(y = reorder(type, low_opt))) +
+  geom_linerange(aes(xmin = min, xmax = max)) +
+  geom_linerange(aes(xmin = low_opt, xmax = high_opt), linewidth = 3) +
+  theme_bw() +
+  labs(y = 'Variety', x = 'Mean annual temperature (C)')
+```
+
+```{r}
+params %>%
+  select(type, threshold, tavg) %>%
+  pivot_wider(names_from = 'threshold', 
+              values_from = 'tavg')
+```
+
+```{r}
+bio1 <- rast('data/wc/wc2.1_10m/wc2.1_10m_bio_1.tif')
+
+plot(bio1 > 10 & bio1 < 36)
+
+plot(bio1 > 10)
+```
+
+```{r}
+params %>%
+  select(type, threshold, prec) %>%
+  pivot_wider(names_from = 'threshold', 
+              values_from = 'prec')
+```
+
+```{r}
+params %>%
+  select(type, threshold, ph) %>%
+  pivot_wider(names_from = 'threshold', 
+              values_from = 'ph')
+```
+
+```{r fig.width = 4.5}
+params %>%
+  select(type, threshold, duration) %>%
+  mutate(threshold = case_when(threshold == 'min' ~ 'avg',
+                               threshold == 'high_opt' ~ 'min',
+                               threshold == 'max' ~ 'max'),
+         type = factor(type, levels = rice_list))  %>%
+  filter(!is.na(threshold)) %>%
+  pivot_wider(names_from = 'threshold', 
+              values_from = 'duration') %>%
+  ggplot(aes(reorder(type, max))) +
+  geom_linerange(aes(ymin = min, ymax = max), linewidth = 1.2) +
+  geom_point(aes(y = avg), size = 4) +
+  labs(y = 'Days', x = 'Variety', title = 'Growing season duration') +
+  theme_bw()
+```
+
+From package examples
+
+```{r}
+potato <- ecocropPars('potato')
+
+# create a model
+m <- ecocrop(potato)
+
+# add parameters
+crop(m) <- cbind(clay=c(0,0,10,20))
+
+# inspect 
+plot(m)
+
+# add predictors
+dp <- cbind(tavg=c(10,12,14,16,18,20,22,20,18,16,14,12), prec=seq(50,182,12))
+t(dp)
+dynamicPredictors(m) <- dp
+
+staticPredictors(m) <- cbind(clay=12)
+
+# run model
+x <- run(m)
+x
+
+y <- matrix(round(x, 1), nrow=2)
+colnames(y) <- month.abb
+rownames(y) <- c("day1", "day15")
+y
+
+dates <- as.Date(paste0("2000-", rep(1:12, each=2), "-", rep(c(1,15), 12)))
+plot(dates, x, las=1, ylab="suitability", xlab="")
+lines(dates, x, col="red")
+
+
+control(m, get_max=TRUE)
+run(m)
+```
+
+```{r}
+library(dismo)
+
+crop <- getCrop('Rice paddy (Japonica)')
+
+library('geodata')
+library(here)
+tmin <- worldclim_global('tmin', res = 10, path = here('wc'))
+tavg <- worldclim_global('tavg', res = 10, path = here('wc'))
+prec <- worldclim_global('prec', res = 10, path = here('wc'))
+eco <- dismo::ecocrop(crop, tmin, tavg, prec, rainfed = TRUE)
+plot(any(is.na(tmin)))
+
+rice <- ecocropPars('Rice paddy (Japonica)')
+
+# create a model
+m <- ecocrop(rice)
+predict(m, tavg = tavg, prec = prec) %>% plot
+plot(eco)
+```
+
+```{r}
+getCrop() %>%
+  filter(str_detect(SCIENTNAME, 'Oryza'))
+```
