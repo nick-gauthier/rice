@@ -19,7 +19,8 @@ library(here) # cross-platform directory structures
 library(readxl) # read excel spreadsheets
 library(exactextractr)
 # library(dismo) # generating background points for niche model, not loaded but should be installed
-library(themis)
+#library(themis)
+library(colino)
 
 # parallel processing
 library(doMC)
@@ -40,6 +41,8 @@ countries <- ne_countries(returnclass = "sf", scale = 'large') %>%
   st_crop(bbox)
 coasts <- ne_coastline(returnclass = 'sf') %>%
   st_crop(bbox)
+
+theme_set(theme_bw())
 ```
 
 # Modeling the climatic niche of rice
@@ -167,26 +170,17 @@ saveRDS(dat, 'data/data-derived/dat.RDS')
 dat <- readRDS('data/data-derived/dat.RDS')
 ```
 
-```{r}
-dat %>%
-  filter(oryza) %>%
-  ggplot(aes(x = bio1)) +
-  geom_histogram()
+we shifts w/archy distribution in bio9, mean temp of driest quarter (arch is colder in the driest) and bio 11, mean temp of coldest quarter. bio11 is one of the more important variables for rufip, and interestingly it clearly separates that from arch. cold. Bio3 is also notably lower for arch than others and clearly separates. bio3 is isothermality (bio2/bio7), and this shift likley comes from bio7, which is temp annual range based on 5 and 6. a bit is coming from 5 mut mostly from 6
 
-dat %>%
-  filter(arch) %>%
-  ggplot(aes(x = bio1)) +
-  geom_histogram()
-
-dat %>%
-  filter(rufip) %>%
-  ggplot(aes(x = bio1)) +
-  geom_histogram()
-
-dat %>%
-  filter(sativa) %>%
-  ggplot(aes(x = bio1)) +
-  geom_histogram()
+```{r, fig.width=8, fig.height = 2}
+train %>%
+  select(bio1:bio9, oryza, rufip, sativa, arch) %>%
+  pivot_longer(oryza:arch, names_to = 'variety', values_to = 'present') %>%
+  filter(present == TRUE) %>%
+  pivot_longer(bio1:bio9, names_to = 'bio') %>%
+  ggplot(aes(value)) +
+  geom_histogram()+
+  facet_grid(variety~bio, scales = 'free')
 ```
 
 So the question here is whether to include background cells where there are occurrence cells. -- this kinda violates the point of the "background", but it does feel weird to copy things
@@ -200,14 +194,14 @@ set.seed(12345)
 # is stratification actually happening here? the diff is more than 10%
 splits <- initial_split(dat, strata = rufip)
 train <- training(splits)
-folds <- vfold_cv(train, v = 5, repeats = 5, strata = rufip)
+folds <- vfold_cv(train, v = 5, repeats = 2, strata = rufip)
 
 ```
 
 establish some metrics
 
 ```{r}
-c_metrics <- metric_set(roc_auc, j_index, sens, spec, pr_auc, kap, f_meas, precision)
+c_metrics <- metric_set(f_meas, roc_auc, pr_auc, j_index, sens, spec, kap, precision)
 ```
 
 Get the class imbalances.
@@ -216,6 +210,13 @@ Get the class imbalances.
 classes <- table(train$rufip)
 occ_ratio <- classes[2]/classes[1]
 occ_ratio
+```
+
+```{r}
+train %>%
+  arrange(rufip) %>%
+  ggplot(aes(bio1, bio12, color = rufip)) +
+  geom_point()
 ```
 
 ### First Tuning
@@ -234,7 +235,7 @@ rank_results(tuning, 'j_index') %>%
 
 #### Kappa
 
-Kappa is like balanced accuracy, down10 normal and down10 hellinger by far. kappa is dependent on the prevalence of the species. so it really likes down10 for some reason, then are the normal recipes withot , then with the downsaling in the rf. and the absolute worst at zero are the double downsamples. so the takeaway from this
+Kappa is like balanced accuracy, down10 normal by far. kappa is dependent on the prevalence of the species. so it really likes down10 for some reason, then are the normal recipes withot , then with the downsaling in the rf. and the absolute worst at zero are the double downsamples. so the takeaway from this
 
 ```{r}
 rank_results(tuning, 'kap') %>%
@@ -244,7 +245,7 @@ rank_results(tuning, 'kap') %>%
   labs(y = 'kap')
 ```
 
-#### AUC scores
+#### AUC-PR
 
 [This paper](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.13140) says area under the precision recall curve (AUC-PR) and precision are good for sdm on presence-background data. Precision is the probability that a predicted location will have an observed species in it. Here the model likes down1_ds. Then there is a clear second tier, led by norm_norm, then norm_ds, followed by down10 and down 1. far and away the wrose is down10_ds. Interesting, here the big difference was between downsampilng everything and nothing basically, and both turned out ok. In general this is going to be influenced by the prevalence so in
 
@@ -259,6 +260,8 @@ rank_results(tuning, 'pr_auc') %>%
 But AUC-ROC is still good for *potential* ranges.
 
 > However, both AUC-PR and precision penalize false positives, and so may be less appropriate for modelling species' potential ranges. This is because locations may be correctly identified as having high potential suitability, despite being currently unoccupied. AUC-ROC has similarly been recognized to be most useful for modelling realized rather than potential ranges (Jiménez-Valverde, [**2012**](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.13140#mee313140-bib-0027)).
+
+#### AUC-ROC
 
 In that case, roc_auc performs well for everything except **down1_ds**. These are the same that perform well for the AUC-PR. But norm hell_ds is the best. That suggests that the even downsampling makes the extrapolation model work better. but the regular down1 ones are fine. so that suggests downsampling on both sides of the random forest is whats really bad. Everything else is great, but notabley the hellinger_ds is top and the norm_hellinger without downsampling is "worst." This is one of the few cases where hellinger makes a difference, but its prety small
 
@@ -375,16 +378,95 @@ prep(rec) %>% juice %>%
   juice
 ```
 
+PC1 is temperaturel bio 7 is temp annual range (5-6), 6 is min temp coldest month, 11 mean temp coldest quarter, 4 is seasonality. so basically these are cold tmeps annaul temps and seasonality indicators.
+
+PC2 is max temp warmerst month and quarter positive and negative are basically summer rainfall indicators.
+
+PC3 is precip seasonality and wenss indicators
+
+PC4 unclear
+
 ```{r}
+# install.packages("devtools")
+#devtools::install_github("tidymodels/learntidymodels")
 prep(rec) %>% 
   juice %>%
   select(-ANL12_ID) %>%
   recipe(rufip ~ .) %>%
   step_normalize(all_predictors()) %>%
   step_pca(all_predictors()) %>%
-  prep %>%
-  tidy(2)
+  prep() %>% 
+  learntidymodels::plot_top_loadings(component_number <= 5, n = 10) 
 ```
+
+```{r}
+remotes::install_github('stevenpawley/colino')
+install.packages("praznik")
+install.packages("FSelectorRcpp")
+library('colino')
+
+rec_filter_mrmr <-
+ rec %>%
+ step_select_mrmr(
+   all_predictors(),
+   outcome = "rufip",
+   threshold = 0.5
+ )
+
+tut2 <- prep(rec_filter_mrmr)
+
+tut2 %>% tidy(3)
+
+tut2 %>% juice()
+
+rec_filter_info <-
+ rec %>%
+ step_select_infgain(
+   all_predictors(),
+   outcome = "rufip",
+  threshold = 0.75,
+   nthreads = 0
+   #top_p = 5
+ )
+
+tut3 <- prep(rec_filter_info)
+
+tut3 %>% tidy(3)
+
+tut3 %>% juice()
+
+```
+
+The permutation variable selection selects 11, 15, 4, 6, 7
+
+The mrmrm seleects 11, 15, 18, 19, 8
+
+BIO11 = Mean Temperature of Coldest Quarter
+
+BIO15 = Precipitation Seasonality (Coefficient of Variation)
+
+BIO18 = Precipitation of Warmest Quarter
+
+> BIO19 = Precipitation of Coldest Quarter\
+> BIO8 = Mean Temperature of Wettest Quarter
+
+with 90% threshold we get 11 and 18, so cold temps and warm season precip\
+\
+infogain gives top 5 as bio1, bio4, bio6, bio7, bio8\
+BIO1 = Annual Mean Temperature
+
+BIO4 = Temperature Seasonality (standard deviation ×100)
+
+BIO6 = Min Temperature of Coldest Month\
+BIO7 = Temperature Annual Range (BIO5-BIO6)
+
+BIO8 = Mean Temperature of Wettest Quarter
+
+top 90% gives bio4 and bio8\
+\
+\
+\
+\
 
 ```{r}
 collect_metrics(final_fit)
@@ -397,7 +479,7 @@ chelsa <- terra::rast(chelsa_files) %>%
   terra::crop(bbox, datatype = 'FLT4S') %>%
   setNames(chelsa_names)
 
-pred <- predict(chelsa, extract_fit_parsnip(final_fit), 
+pred_rufip <- predict(chelsa, extract_fit_parsnip(final_fit), 
                 type = 'prob', cores = available_cores / 2) 
 
 saveRDS(pred, here('data/data-derived/pred_rufip.rds'))
@@ -418,22 +500,234 @@ ggplot() +
 
 ```
 
-### Partial Dependence Plots 
+No plot the data locations and whether they were guessed correctly . . .
+
+### Partial Dependence Plots
 
 ```{r}
 library(pdp)
 
 final_fit %>%
   extract_fit_engine() %>%
-partial(pred.var = "bio1", train = train) %>%
-              plotPartial(smooth = TRUE, lwd = 2)
+partial(pred.var = "bio1", train = train, 
+        plot.engine = 'ggplot2', prob = TRUE, progress = TRUE) %>%
+              plotPartial(lwd = 2, rug = TRUE)
 ```
 
 ```{r}
 final_fit %>%
   extract_fit_engine() %>%
-partial(pred.var = "bio6", train = train) %>%
-              plotPartial(smooth = TRUE, lwd = 2)
+partial(pred.var = "bio6", train = train, 
+        plot.engine = 'ggplot2', prob = TRUE, progress = TRUE, rug = TRUE) %>%
+              plotPartial(lwd = 2)
+```
+
+```{r}
+final_fit %>%
+  extract_fit_engine() %>%
+partial(pred.var = "bio11", train = train, 
+        plot.engine = 'ggplot2', prob = TRUE, progress = TRUE, rug = TRUE) %>%
+              plotPartial(lwd = 2)
+```
+
+```{r}
+library(DALEXtra)
+
+new <- prep(rec) %>% juice
+explainer <- explain_tidymodels(
+  extract_fit_parsnip(final_fit),
+  new[,-c(1:2)],
+  as.numeric(new$rufip) -1,
+  type = 'classification'
+)
+
+pdp_bio1 <- model_profile(
+  explainer,
+  variables = "bio1",
+  N = 1000
+)
+
+plot(pdp_bio1)
+
+ggplot_pdp <- function(obj, x) {
+  
+  p <- 
+    as_tibble(obj$agr_profiles) %>%
+    mutate(`_label_` = stringr::str_remove(`_label_`, "^[^_]*_")) %>%
+    ggplot(aes(`_x_`, `_yhat_`)) +
+    geom_line(data = as_tibble(obj$cp_profiles),
+              aes(x = {{ x }}, group = `_ids_`),
+              size = 0.5, alpha = 0.05, color = "gray50")
+  
+  num_colors <- n_distinct(obj$agr_profiles$`_label_`)
+  
+  if (num_colors > 1) {
+    p <- p + geom_line(aes(color = `_label_`), size = 1.2, alpha = 0.8)
+  } else {
+    p <- p + geom_line(color = "midnightblue", size = 1.2, alpha = 0.8)
+  }
+  
+  p
+}
+
+pdp_bio6 <- model_profile(
+  explainer,
+  variables = "bio6",
+  N = 1000
+)
+ggplot_pdp(pdp_bio6, bio6)  +
+  labs(x = "Year built", 
+       y = "Sale Price (log)", 
+       color = NULL)
+```
+
+## planning
+
+so this is all great, but what's next? thinking still about sampling issues . . . do I sample background cells where I have presence points? do I thin the presence points or should I use the raw densities? should I still some kind of downsampling of the background? should I use the 1km extracted predictors instead of the grid cell level predictors? some kind of spatial cross validation scheme?
+
+no that I think about it the idea of going back to raw points is attractive
+
+Pros:
+
+1.  faster prepoccsing
+2.  control size of background
+3.  faster climate extraction
+4.  easier to do spatial cv?
+5.  can account for lat with weighted sampling
+6.  more information from multiple presence points
+7.  more informaiton but likely less data overall
+
+Cons:
+
+1.  unrelaistic preciion in location
+2.  more prone to sampling bias?
+3.  lower number of background points might make it not represnt the environment as much
+4.  cleaner interpretaiton of grid cell classification
+
+I should go back to the SDM how to paper by elith and check some of these off
+
+now as a test, I'll see about the reduced models
+
+```{r}
+# pca
+base_rec <- train %>%
+  recipe() %>%
+  update_role(starts_with('bio'), new_role = 'predictor') %>%
+  update_role(rufip, new_role = 'outcome') %>%
+  update_role(ANL12_ID, new_role = 'id') %>%
+  step_bin2factor(all_outcomes()) %>%
+  step_rm(!has_role(c('predictor', 'outcome', 'id')))
+
+rec1 <-  base_rec %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_pca(num_comp = 5)
+ 
+# bart
+rec2 <- train %>%
+  recipe(rufip ~ bio1 + bio12 + bio15 + bio2 + bio3) %>%
+  step_bin2factor(all_outcomes())
+
+# vip
+rec3 <- train %>%
+  recipe(rufip ~ bio11 + bio15 + bio4 + bio6 + bio7) %>%
+  step_bin2factor(all_outcomes())
+
+# reasonable
+rec4 <- train %>%
+  recipe(rufip ~ bio1 + bio12 + bio5 + bio6) %>%
+  step_bin2factor(all_outcomes())
+
+# mrmr
+rec5 <- train %>%
+  recipe(rufip ~ bio11 + bio15 + bio18 + bio19 + bio8) %>%
+  step_bin2factor(all_outcomes())
+  #base_rec %>%
+  #step_select_mrmr(all_predictors(), outcome = 'rufip', top_p = 5)
+
+# infogain
+rec6 <- train %>%
+  recipe(rufip ~ bio1 + bio4 + bio6 + bio7 + bio8) %>%
+  step_bin2factor(all_outcomes())
+# base_rec %>%
+#  step_select_infgain(
+#    all_predictors(),
+#    outcome = "rufip",
+#    nthreads = 0,
+#    top_p = 5
+#  )
+
+params <- rf_mod %>%
+  extract_parameter_set_dials() %>%
+  update(mtry = mtry(c(1, 6)))
+new_rec <- list(base = base_rec, pca = rec1, bart = rec2, vip = rec3, expert = rec4, mrmr = rec5, info = rec6)
+set <- workflow_set(new_rec, list(mod = rf_mod))
+
+registerDoMC(cores = available_cores)
+tuning_rec <- workflow_map(set, 'tune_bayes', resamples = folds, metrics = c_metrics, param_info = params)
+registerDoSEQ()
+```
+
+1,2,6,4,3,5
+
+Interesting, so the PCA performs best, then the BART selected variables, then the top 7 varimp, then varimp top 5, Last two are just bio1 and 12, worse by faris bio11 and 6 which are the top 2 varimp selected ones
+
+So this shows that:
+
+1.  the autoatic varimp fails in the way we'd expect given the colinear predictors
+2.  pca does good as always,
+3.  so does embarcardero
+
+So why not just use PCA then? It'd be nice to have more direct raw variables ot make it easier to look at th epotential niches curther back in time. Projecting the pca into th past and future is risky, and would require an area of applicability test on the climate data (because what if the correlations change?)
+
+But remeber, this is all with a given level of mtry!
+
+Now retuining with varying mtry and min nodes. This says base and PCA best about equally good. Bart a bit beyond that. notably higher variance in the pr_auc metric. Thats the first tier. In the next tier is expert first and then the three filters. MRMR is the best and VIP is generally notably worse. Overall
+
+```{r}
+autoplot(tuning_rec,select_best = TRUE)
+```
+
+```{r}
+rank_results(tuning_rec, select_best = TRUE) %>%
+  select(wflow_id, .metric, mean) %>%
+  pivot_wider(names_from = .metric, values_from = mean)
+```
+
+So MTRY sometimes tries to go for the really low ranges.
+
+```{r}
+map(tuning_rec$result, autoplot)
+```
+
+this makes me want to look at the effect of varying mtry
+
+```{r}
+small_fit <- final_mod <- rand_forest(mode = 'classification',
+                         trees = 1000,
+                         mtry = 3,
+                         min_n = 5) %>%
+  set_engine('ranger',
+             importance = 'permutation',
+             replace = FALSE,
+             sample.fraction = c(0.632 * occ_ratio, 
+                                 0.632 * occ_ratio)) %>%
+  workflow(base_rec, .) %>%
+  fit(train)
+
+small_fit
+```
+
+6,15,11,17,18,4,
+
+```{r}
+extract_fit_engine(small_fit) %>%
+  vip(geom = "point", num_features = 19)
+```
+
+```{r}
+(as.numeric(new$rufip) %>% unique) * -1 + 2
+sdm_step <- embarcadero::bart.step(x.data = new[,-c(1:2)], 
+                      y.data = as.numeric(new$rufip) * -1 + 2)
 ```
 
 ## BART
@@ -508,6 +802,8 @@ sdm <- fit_resamples(wflw, folds)
 ```
 
 ```{r}
+bbox <- st_bbox(c(xmin = 60, xmax =150, ymin= -20, ymax = 50), crs = 4326)
+
 chelsa_files <- list.files('../../CHELSA_V2_bio_clim', full.names = TRUE)[c(2:20)]#, 60:70)]#70)]
 chelsa_names <- chelsa_files %>% str_split('_') %>% map_chr(~.x[5])
 
@@ -663,14 +959,28 @@ ggplot() +
   theme_void()
 ```
 
+```{r}
+ggplot() +
+  geom_stars(data = pred['.pred_present'], downsample = 10) +
+  geom_sf(data = coasts, color = 'white') +
+  scale_fill_viridis_c() +
+  theme_void()
+
+ggplot() +
+  geom_stars(data = st_as_stars(pred_coarse[[1]])) +
+  geom_sf(data = coasts, color = 'white') +
+  scale_fill_viridis_c() +
+  theme_void()
+```
+
 ## Model selection with BART
 
 Use Bayesian additive regression trees for more interpretable niche modeling.
 
 ```{r}
 # install.packages('remotes')
-remotes::install_github('cjcarlson/embarcadero')
-install.packages('reshape')
+#remotes::install_github('cjcarlson/embarcadero')
+#install.packages('reshape')
 library(embarcadero)
 
 xvars <- names(dat)[!(names(dat) == 'rice')]
