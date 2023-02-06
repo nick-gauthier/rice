@@ -1,12 +1,15 @@
 ---
-title: "Rice Ecological Niche Modeling"
+title: "Modeling the past and future climatic niche of rice"
 author: "Nick Gauthier"
 date: "`r Sys.Date()`"
-format: html
+format:
+  html:
+    theme: sandstone
 editor: visual
 knitr: 
   opts_chunk:
     echo: FALSE
+bibliography: references.bib
 ---
 
 ```{r setup, message = FALSE, warning = FALSE}
@@ -20,7 +23,8 @@ library(readxl) # read excel spreadsheets
 library(exactextractr)
 # library(dismo) # generating background points for niche model, not loaded but should be installed
 #library(themis)
-library(colino)
+#library(colino)
+library(Recocrop)
 
 # parallel processing
 library(doMC)
@@ -30,1193 +34,385 @@ available_cores <- parallel::detectCores(logical = TRUE)
 library(rnaturalearth) # country boundaries
 library(vip) # variable importance plots
 
+sf_use_s2(FALSE)
+
 # define the study area
-bbox <- st_bbox(c(xmin = 60, xmax = 150, ymin = -20, ymax = 50), crs = 4326)
-# create a 10' reference raster
-ref <- st_as_stars(bbox, dx = 0.166667)
-#sf_use_s2(FALSE)
+asia_bbox <- st_bbox(c(xmin = 60, xmax = 150, ymin = -20, ymax = 50), crs = 4326)
+world_bbox <- st_bbox(c(xmin = -130, xmax = 155, ymin = -55, ymax = 60), crs = 4326)
 
 # get country boundaries shapefile for plotting
 countries <- ne_countries(returnclass = "sf", scale = 'large') %>%
-  st_crop(bbox)
+  st_crop(world_bbox)
 coasts <- ne_coastline(returnclass = 'sf') %>%
-  st_crop(bbox)
+  st_crop(world_bbox)
 
 theme_set(theme_bw())
 ```
 
-# Modeling the climatic niche of rice
+# Introduction
+
+Question: What is the fundamental thermal niche of rice? How has rice's niche changed in the past and how is it likely to change in the future? How sensitive is rice to changes in its thermal niche?
+
+Hypotheses: Rice's fundamental thermal niche reflects both lower and upper bounds on temperature. Earlier in the Holocene temperatures were warmer, so rice was able to be grown further north. But although rice has adapted to increased cold it has not adapted to increased heat. Projected increases in heat will reduce the global rice niche without increasing it elsewhere.
+
+# Data
 
 ## Rice occurrence data
 
-Read in the GBIF/CHV occurrence data for rice's wild progenitor (Oryza rufipogon G.) from [here](https://www.sciencedirect.com/science/article/pii/S1574954122002631). Also load occurrence records of domestic rice from the same source, as well as occurrences of botanical remains thought to be *O. sativa japonica* from archaeological sites.
+### Contemporary rice data
 
-```{r, fig.width=4, fig.height = 4, warning=FALSE}
-occ <- here('data', 'Datasets of occurrence records of rice and its wild progenitor.xlsx')
+We used geolocated occurrence records for rice's wild progenitor (Oryza rufipogon G.) from GBIF/CHV via [here](https://www.sciencedirect.com/science/article/pii/S1574954122002631) . Also load occurrence records of domestic rice from the same source.
+
+```{r warning = FALSE}
+occ <- here('data/data-raw/Datasets of occurrence records of rice and its wild progenitor.xlsx')
 progenitor <- read_excel(occ, skip = 6715) %>%
   select(-x, -`the wild progenitor`) %>%
   st_as_sf(coords = 2:1, crs = 4326) %>%
-  st_crop(bbox) %>%
+  st_crop(world_bbox) %>%
   mutate(rice = 'present')
+
 
 domestic <- read_excel(occ, n_max = 6714) %>%
   remove_missing() %>%
   select(-x, -Rice) %>%
   st_as_sf(coords = 2:1, crs = 4326) %>%
-    st_crop(bbox) %>%
+   st_crop(world_bbox) %>%
   mutate(rice = 'present')
+```
 
-arch <- here('data', 'Archaeological Rice Dataset.xlsx') %>%
+### Archaeological rice data
+
+We used rice occurrence data from archaeological sites using version 2 of the Rice Archaeological Database \@[@silva2015]. The data span the period from xxx to yyy. A total of zzz sites are included in the database, mainly from eastern China, Japan, Korea, and southeast Asia. These are generally records of botanical remains thought to be *O. sativa japonica* from archaeological sites. Some of these occurrence were likely wild-type *O. rufipogon* instead based on their timing. We removed one such extremely early occurrence from xxx as a likely outlier.
+
+Also cleaned data from [@gutaker2020]
+
+```{r arch-rice-data}
+arch <- here('data/data-raw/Archaeological Rice Dataset.xlsx') %>%
   read_excel() %>%
   st_as_sf(coords = c('Longitude', 'Latitude'), crs = 4326) %>%
   rename(age = `Est._Date_Median_BC`) %>%
-  arrange(-age)
-
-ggplot() +
-  geom_sf(data = coasts) +
-  geom_sf(data = st_crop(domestic, bbox), alpha = .5) +
-  geom_sf(data = st_crop(progenitor, bbox), color = 'green', alpha = .5) +
-    labs(title = "Rice occurence data", subtitle = "O. sativa (modern, black), O. rufipogon (modern, green), O. sativa japonica (archaeological, red)", caption = 'source: GBIF, CHV, Rice Archaeological Database') +
-  geom_sf(data = arch, color = 'red', alpha = .5) +
-  theme_minimal()
-```
-
-```{r}
-oryza <- read_tsv('0266607-220831081235567.csv') %>%
-  st_as_sf(coords = c('decimalLongitude', 'decimalLatitude'), crs = 4326) %>%
-  st_crop(bbox)
-
-ggplot() +
-  geom_sf(data = coasts) +
-  geom_sf(data = oryza, alpha = .5) +
-  theme_minimal()
-```
-
-```{r}
-dgg <- read_sf('../future-anthromes/data/data-raw/dgg_land.gpkg') %>%
-  st_crop(bbox) 
-
-plot(dgg['L1_ID'], lwd = 0.1)
-```
-
-```{r, cache = TRUE}
-occ_dgg <- dgg %>%
-   mutate(oryza =  lengths(st_intersects(dgg, oryza)) > 0,
-          rufip = lengths(st_intersects(dgg, progenitor)) > 0,
-          sativa = lengths(st_intersects(dgg, domestic)) > 0,
-          arch = lengths(st_intersects(dgg, arch)) > 0,
-          geom = st_centroid(geom))
-
-
-ggplot() +
-    geom_sf(data = coasts) +
-  geom_sf(data = filter(occ_dgg, oryza == TRUE), size = .1) +
-    geom_sf(data = filter(occ_dgg, rufip == TRUE), size = .1, color = 'green') +
-      geom_sf(data = filter(occ_dgg, sativa == TRUE), size = .1, color = 'blue') +
-    geom_sf(data = filter(occ_dgg, arch == TRUE), size = .1, color = 'red') +
-  theme_minimal()
-```
-
-```{r}
-occ_dgg %>%
-  summary
+  mutate(age = age - 1950) %>%
+  st_crop(world_bbox) %>%
+  arrange(-age) %>%
+  filter(age > -10000)
 ```
 
 ## Climate data
 
-Load the CHELSA V2 bioclimate layers. They come at a native 1km resolution, which is a bit too optimistic. We'll extract them to a larger equal-area grid system.
+### Observations
 
-```{r cache = TRUE}
+We used high-resolution gridded climate data from CHELSA V2 [@brun2022]. CHELSA is a quasi-mechanistic topo-climatic downscaling algorithm. It uses raw outputs from the ERA-5 reanalysis with additional bias correction by GPCC and xxx.CHELSA performs much better than other global gridded climate products like WorldClim or TerraClim, particularly in mountainous areas, and its use of high quality reanalysis data rather than unprocessed weather station data ensures further accuracy and internal consistency between the variables.
+
+The monthly mean climatologies for precipitation and minimum and maximum temperature were post processed into the standard 19 bioclimatic variables, with additional variables relating to factors like soil moisture, growing season length, and humidity. These data span the period 1980-2010 at a 1km resolution. We aggregated the 1km data to 10km resolution to better sample the landscape-scale climate patterns and to ameliorate the false precision of using 1km climate data with uncertain occurrence geolocations.
+
+```{r load-chelsa, cache = TRUE}
 chelsa_files <- list.files('../../CHELSA_V2_bio_clim', 
-                           full.names = TRUE)[c(2:20)]#, 60:70)]#70)]
+                           full.names = TRUE)[c(1:20, 40:59)]
 
 chelsa_names <- chelsa_files %>% 
   str_split('_') %>% 
-  map_chr(~.x[5])
-
-bbox <- terra::ext(60, 150, -20, 50)
+  map(~.x[5:7]) %>%
+  map(~if_else(.x %in% c("1981-2010", "V.2.1.tif"), NA, .x)) %>%
+  map_chr(str_flatten, collapse = '_', na.rm = TRUE)
 
 chelsa <- terra::rast(chelsa_files) %>%
-  terra::crop(bbox) %>%
-  exact_extract(dgg, 'mean') %>% 
-  rename_with(~str_remove(.x, 'mean.'))
+  aggregate(fact = 10, cores = 10, na.rm = TRUE)
 
-#chelsa <- chelsa_files %>%
-#  read_stars(shorten = FALSE) %>%
-#  st_crop(bbox) %>%
-#  setNames(chelsa_names)
-#chelsa_rast <- chelsa_files %>%
-#    terra::rast() %>%
-#    setNames(chelsa_names)
+writeCDF(chelsa, here('data/data-derived/chelsa_10km.nc'), overwrite = TRUE)
 ```
 
-```{r eval = FALSE}
-saveRDS(chelsa_dgg, 'data/data-derived/chelsa_dgg.RDS')
-chelsa_dgg <- readRDS('data/data-derived/chelsa_dgg.RDS')
+### Paleoclimate reconstructions
+
+Including the global temperature reconstruction of [@10.5194/cp-18-2599-2022;\@10.5281/zenodo.6426332].
+
+```{r erb, fig.width = 6, fig.height = 5, cache = TRUE}
+erb_rotated <- read_ncdf(here('data/data-raw/holocene_reconstruction.nc'), 
+                              var = 'recon_tas_mean') %>%
+                           st_set_crs(4326)
+                         
+times <- st_get_dimension_values(erb_rotated, 'ages')
+
+floor_mil   = function(value){ return(value - value %% 1000) }
+floor_cen   = function(value){ return(value - value %% 100) }
+
+centuries <- floor_cen(1949.5 - times)
+mil <- floor_mil(1949.5 - times)
+hist(mil)
+erb <- erb_rotated %>%  
+  as('SpatRaster') %>%
+  rotate() %>%
+  tapp(mil, fun = mean) %>%
+  st_as_stars(crs = 4326) %>%
+  st_set_dimensions('band', names = 'time', 
+                    values = unique(mil) / 1000 - 1) %>%
+  setNames('tas') %>%
+  st_crop(asia_bbox) %>%
+  mutate(tas = units::set_units(tas, degree_c)) %>%
+  filter(time >= -8)
+
+erb_decadal <- erb_rotated %>%  
+  as('SpatRaster') %>%
+  rotate() %>%
+  st_as_stars(crs = 4326) %>%
+  st_set_dimensions('band', names = 'time', 
+                    values = -1 * (times + 0.5)) %>%
+  setNames('tas') %>%
+ st_crop(asia_bbox) %>%
+  mutate(tas = units::set_units(tas, degree_c))
+
+ggplot() +
+  geom_stars(data = (erb[,,,-c(1:2,9)] - slice(erb, 'time', 1)) %>% st_crop(countries %>% st_crop(asia_bbox))) +
+  facet_wrap(~time) +
+  #scale_fill_viridis_c(option = 'magma') +
+  scale_fill_distiller(palette = 'RdBu', na.value = 'white') +
+  geom_sf(data = st_crop(coasts, asia_bbox))
+#rm(erb_rotated, times)
 ```
+
+Others? PMIP3/TRACE/CHELSA-TRACE
+
+### Future climate projections
+
+We also aquired downscaled projections of future climate from the CMIP6 archive, also downscaled using the CHELSA algorithm [@brun2022].
+
+# Methods
+
+All analyses carried out in `R` [@base]. The entire analysis is run in a reproducible \`.qmd\` notebook.
 
 ## Ecological niche modeling
 
-Sample background points from the CHELSA data for the ENM.
+### Preprocessing
 
-```{r}
-dat <- occ_dgg %>%
-  bind_cols(chelsa_dgg) %>%
-  st_drop_geometry()
-```
+All spatial data manipulation was carried out using the `sf`, `stars`, and `terra` packages [@terra; @stars; @sf].
 
-```{r eval = FALSE}
-saveRDS(dat, 'data/data-derived/dat.RDS')
-dat <- readRDS('data/data-derived/dat.RDS')
-```
+We thinned the occurrence data to minimize influences from sampling biases. We select one sample per 10km grid in the predictor data [@dismo]. Because we do not have true absence data for past and present rice occurrences, we generated 50,000 latitude-weighted random background points on land surfaces. This allows us to estimate the relative suitability for the given crop with respect to the global climatic baseline.
 
-we shifts w/archy distribution in bio9, mean temp of driest quarter (arch is colder in the driest) and bio 11, mean temp of coldest quarter. bio11 is one of the more important variables for rufip, and interestingly it clearly separates that from arch. cold. Bio3 is also notably lower for arch than others and clearly separates. bio3 is isothermality (bio2/bio7), and this shift likley comes from bio7, which is temp annual range based on 5 and 6. a bit is coming from 5 mut mostly from 6
+```{r background-sample, cache = TRUE}
+chelsa <- rast(here('data/data-derived/chelsa_10km.nc')) %>%
+    setNames(chelsa_names)
+set.seed(1234567)
+samp <- dismo::gridSample(st_coordinates(progenitor), chelsa) %>%
+   as_tibble() %>%
+  st_as_sf(coords = c('X', 'Y'), crs = 4326) %>% 
+  mutate(presence = TRUE)
 
-```{r, fig.width=8, fig.height = 2}
-train %>%
-  select(bio1:bio9, oryza, rufip, sativa, arch) %>%
-  pivot_longer(oryza:arch, names_to = 'variety', values_to = 'present') %>%
-  filter(present == TRUE) %>%
-  pivot_longer(bio1:bio9, names_to = 'bio') %>%
-  ggplot(aes(value)) +
-  geom_histogram()+
-  facet_grid(variety~bio, scales = 'free')
-```
+nrow(progenitor);nrow(samp)
 
-So the question here is whether to include background cells where there are occurrence cells. -- this kinda violates the point of the "background", but it does feel weird to copy things
+bbox <- raster::extent(-130, 155, -55, 60) 
 
-```{r}
-#dat2 <- dat %>%
-#  mutate(rufip = FALSE) %>%
-#  bind_rows(filter(dat, rufip == TRUE))
+bg <- dismo::randomPoints(as(chelsa[['pet_penman_mean']], 'Raster'), 50000, 
+                          st_coordinates(samp), bbox) %>%
+  as_tibble() %>%
+  st_as_sf(coords = c('x', 'y'), crs = 4326) %>% 
+  mutate(presence = FALSE)
   
+dat_pts <- bind_rows(samp, bg)
+
+dat <- bind_cols(dat_pts,
+          terra::extract(chelsa, dat_pts, ID = FALSE)) %>%
+  st_drop_geometry()# %>%
+  #remove_missing()
+saveRDS(dat, here('data/data-derived/rufip_dat.rds'))
+ggplot(dat_pts) +
+  geom_sf(data = countries, color = NA) +
+  geom_sf(size = 0.1, aes(color = presence)) +
+  scale_color_manual(values = c('black', 'red')) +
+  theme_minimal()
+
+dat %>% filter(if_any(everything(), is.na) & presence == TRUE)
+```
+
+We randomly divided the occurrence data into a train test split, and further subdivided the training data into 5 folds, repeated 5 times, for cross validation. The train-test and 5-fold splits were both stratified by the presence-background outcome variable, so that the proportion of presence to background points was the same throughout. This ensures the models do not overfit to the high-prevalence background points.
+
+```{r}
+dat <- readRDS(here('data/data-derived/rufip_dat.rds'))
 set.seed(12345)
 # is stratification actually happening here? the diff is more than 10%
-splits <- initial_split(dat, strata = rufip)
+splits <- initial_split(dat, strata = presence)
 train <- training(splits)
-folds <- vfold_cv(train, v = 5, repeats = 2, strata = rufip)
-
+folds <- vfold_cv(train, v = 5, repeats = 5, strata = presence)
 ```
 
-establish some metrics
+### Variable selection
+
+We compared multiple models, including:
+
+1.  All 19 Bioclimate variables
+2.  Basic variables that can reasonably be reconstructed in the past: MAT, mean temperature of the warmest month, mean temperature of the coldest month, total annual precipitation, (growing degree days, PET, aridity index?)
+3.  Additional moisture and terrain variables like PET, humidity, and solar radiation (soil PH)
+4.  Stepwise model selection through BART
+
+We evaluated our model based on several skill scores, the J, F index
 
 ```{r}
 c_metrics <- metric_set(f_meas, roc_auc, pr_auc, j_index, sens, spec, kap, precision)
 ```
 
-Get the class imbalances.
+### Random forests
+
+We fit machine learning models using random forests, an ensemble-based machine learning method that makes predictions from an ensemble of several decisions trees. Random Forests have a high performance and low requirement for tunable parameters. Indeed, preliminary attempts to tune the number of variables selected per node (m_try) and minimum samples per node showed the default values for regression were performant so we elected to use the default values for simplicity.
+
+Used the `tidymodels` framework for R, includeing the packages `parsnip`, `recipes`, `rsample`, and `yardstick` [@parsnip; @dials; @rsample; @recipes]. The underlying random forest algorithm relied on the implementation in the [@ranger] package.
+
+We used balanced random forests to account for the low prevalence of the occurrence data relative to the environmental background points. Balanced random forests pull equal-sized samples of each category for the creation of each tree in the ensemble. This helps the model learn to readily learn to detect the rare class, without throwing out potential information about the environmental background as would be required if the entire RF was fit on a single downsample. We grew the random forests by subsampling \~62% of the data without replacement.
 
 ```{r}
-classes <- table(train$rufip)
-occ_ratio <- classes[2]/classes[1]
-occ_ratio
+classes <- table(train$presence)
+prevalence <- classes[2]/classes[1]
+prevalence
 ```
 
 ```{r}
-train %>%
-  arrange(rufip) %>%
-  ggplot(aes(bio1, bio12, color = rufip)) +
-  geom_point()
-```
+all_rec <- train %>%
+  recipe(presence ~ .) %>%
+  step_mutate_at(all_predictors(), fn = ~replace_na(., 0)) %>%
+  step_bin2factor(all_outcomes()) %>%
+  step_rm(npp)
 
-### First Tuning
-
-#### J
-
-J index (sens + spec -1, 1) means no false positives and no false negatives. downsampling within and without do well . down10 is consistently worse, and the worse is normal without any downsampling at all. so the downsampling is increasing our J index, because without it we were probably getting degenerate models that just always predicted absences or something.
-
-```{r}
-rank_results(tuning, 'j_index') %>%
-  filter(.metric == 'j_index') %>%
-  ggplot(aes(rank, mean)) +
-  geom_point() +
-  labs(y = 'j_index')
-```
-
-#### Kappa
-
-Kappa is like balanced accuracy, down10 normal by far. kappa is dependent on the prevalence of the species. so it really likes down10 for some reason, then are the normal recipes withot , then with the downsaling in the rf. and the absolute worst at zero are the double downsamples. so the takeaway from this
-
-```{r}
-rank_results(tuning, 'kap') %>%
-  filter(.metric == 'kap') %>%
-     ggplot(aes(rank, mean)) +
-  geom_point() +
-  labs(y = 'kap')
-```
-
-#### AUC-PR
-
-[This paper](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.13140) says area under the precision recall curve (AUC-PR) and precision are good for sdm on presence-background data. Precision is the probability that a predicted location will have an observed species in it. Here the model likes down1_ds. Then there is a clear second tier, led by norm_norm, then norm_ds, followed by down10 and down 1. far and away the wrose is down10_ds. Interesting, here the big difference was between downsampilng everything and nothing basically, and both turned out ok. In general this is going to be influenced by the prevalence so in
-
-```{r}
-rank_results(tuning, 'pr_auc') %>%
-  filter(.metric == 'pr_auc') %>%
-    ggplot(aes(rank, mean)) +
-  geom_point() +
-  labs(y = 'pr_auc')
-```
-
-But AUC-ROC is still good for *potential* ranges.
-
-> However, both AUC-PR and precision penalize false positives, and so may be less appropriate for modelling species' potential ranges. This is because locations may be correctly identified as having high potential suitability, despite being currently unoccupied. AUC-ROC has similarly been recognized to be most useful for modelling realized rather than potential ranges (Jiménez-Valverde, [**2012**](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.13140#mee313140-bib-0027)).
-
-#### AUC-ROC
-
-In that case, roc_auc performs well for everything except **down1_ds**. These are the same that perform well for the AUC-PR. But norm hell_ds is the best. That suggests that the even downsampling makes the extrapolation model work better. but the regular down1 ones are fine. so that suggests downsampling on both sides of the random forest is whats really bad. Everything else is great, but notabley the hellinger_ds is top and the norm_hellinger without downsampling is "worst." This is one of the few cases where hellinger makes a difference, but its prety small
-
-This metric selects basically anything except the double downsample. which is reasonable.
-
-```{r}
-rank_results(tuning, 'roc_auc') %>%
-  filter(.metric == 'roc_auc') %>%
-  ggplot(aes(rank, mean)) +
-  geom_point() +
-  labs(y = 'roc_auc')
-```
-
-```{r}
-autoplot(tuning)
-```
-
-### Takeaways
-
-I'm noticing hellinger is usually slightly better than the normal alternative, but overall everything else matters more. Well, is hellinger ever any worse? Once.
-
-So after hellinger how we think about downsampling within the folds?
-
-don't do in folds and in bootstraps -- that seems to do poorly for everything but precision. I guess that may be undersampling the potential background points?
-
-### Second tuning
-
-Now we've decided to do the within RF subsampling rather than outer rf subsampling. [This paper](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0201904#sec002) suggests even subsampling is desirable, although stratified subsampling also works. But in general you can use the oob error estimates and they'll be fairly unbaised. but you have to subsample 0.632\*lowclassprob instead of bootstrap for reasons they cite.
-
-> An approach called "balanced random forest" \[[34](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0201904#pone.0201904.ref034)\] tackles this imbalance by drawing the same numbers of observations with replacement from each class for each tree yielding trees that do not preferentially predict a specific class. 
->
-> For unbalanced data, both when sampling the same numbers of observations (balanced RF) and when using sampling fractions that are proportional to the class sizes, the class-specific OOB errors are (almost) unbiased with respect to the corresponding class-specific test errors. Sampling the same numbers of observations from each class yields a RF that has the same prediction performance independent of the class an observation comes from. For observations from the smaller class prediction performance is considerably higher than that obtained when using sampling fractions that are proportional to the class sizes. Nevertheless, for observations from the larger class, sampling fractions that are proportional to the class sizes performs slightly better than sampling the same numbers from each class. *In unbalanced settings, in which there is a strong interest in predicting observations from the smaller classes well, sampling the same number of observations from each class might therefore be the method of choice.*
->
-> Two main conclusions are drawn from these studies: (i) When choosing the *mtry* value using the OOB error, stratified subsampling can yield downwardly biased error rate estimates if the stratified OOB error that is smallest across all *mtry* values is used as an estimate of the generalization error; (ii) This bias can be greatly reduced by constructing a new RF using the *mtry* value that was chosen based on the stratified OOB error, and reporting the stratified OOB error of the new RF as an estimate of the generalization error. The latter point can be justified by the very small downward bias from procedure (2) that is observed for stratified subsampling in the analysis, even so the simulation setting with the highest variability of the OOB error estimates was used. **Nevertheless, the gold standard procedure is using stratified CV for error estimation, choosing an optimal *mtry* value using the stratified OOB error in each iteration of the stratified CV.**
-
-```{r}
-rec <- train %>%
+bioclim_rec <- train %>%
   recipe() %>%
   update_role(starts_with('bio'), new_role = 'predictor') %>%
-  update_role(rufip, new_role = 'outcome') %>%
-  update_role(ANL12_ID, new_role = 'id') %>%
+  update_role(presence, new_role = 'outcome') %>%
   step_bin2factor(all_outcomes()) %>%
-  step_rm(!has_role(c('predictor', 'outcome', 'id')))
- 
+  step_rm(!has_role(c('predictor', 'outcome')))
+
+expert_res <- train %>%
+  recipe(presence ~ bio1 + bio12 + bio5 + bio6) %>%
+  step_bin2factor(all_outcomes()) %>%
+  step_rm(!has_role(c('predictor', 'outcome')))
+
 rf_mod <- rand_forest(mode = 'classification',
                          trees = 1000,
-                         mtry = tune(),
-                         min_n = tune()) %>%
+                         mtry = 5) %>%
   set_engine('ranger',
              replace = FALSE,
-             sample.fraction = c(0.632 * occ_ratio, 
-                                 0.632 * occ_ratio))
+             sample.fraction = c(0.632 * prevalence, 
+                                 0.632 * prevalence))
 
-wflw <- workflow(rec, rf_mod)
+#params <- rf_mod %>%
+#  extract_parameter_set_dials() %>%
+#  update(mtry = mtry(c(1, 6)))
+rec_list <- list(all = all_rec, bio = bioclim_rec, expert = expert_res)
+wflws <- workflow_set(rec_list, list(rf = rf_mod))
 
 registerDoMC(cores = available_cores)
-res <- tune_bayes(wflw, folds, metrics = c_metrics)
+#tuning_rec <- workflow_map(wflws, 'tune_bayes', resamples = folds, metrics = c_metrics, param_info = params)
+wflw_fits <- workflow_map(wflws, 'fit_resamples', resamples = folds, metrics = c_metrics, verbose = TRUE)
 registerDoSEQ()
 ```
 
 ```{r}
-autoplot(res)
-```
+autoplot(wflws)
+prep(expert_res) %>% juice
 
-This selects a model with mtry = 6 and min_n = 4
-
-```{r}
-best_rf <- select_best(res)
-best_rf
-saveRDS(best_rf, here('data/data-derived/best_rf.rds'))
-```
-
-### Variable importance
-
-Now the winning model will be retrained on the training data and we'll do some variable importance exploration. Because we selected a low mtry we're getting a more informative view.
-
-dfa
-
-The VIP gives the following variables:
-
-1.  BIO6 = Min Temperature of Coldest Month
-2.  BIO11 = Mean Temperature of Coldest Quarter
-3.  BIO15 = Precipitation Seasonality (Coefficient of Variation)
-4.  BIO4 = Temperature Seasonality (standard deviation ×100)
-5.  BIO7 = Temperature Annual Range (BIO5-BIO6)
-6.  BIO18 = Precipitation of Warmest Quarter
-7.  BIO1 = Annual Mean Temperature\
-
-6 and 11 were shown to dominate the first pc in \[this paper\](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.12244)
-
-```{r}
-final_mod <- rand_forest(mode = 'classification',
-                         trees = 1000,
-                         mtry = 6,
-                         min_n = 4) %>%
-  set_engine('ranger',
-             importance = 'permutation',
-             replace = FALSE,
-             sample.fraction = c(0.632 * occ_ratio, 
-                                 0.632 * occ_ratio))
-
-final_fit <- last_fit(final_mod, rec, splits, metrics = c_metrics)
-
-extract_fit_engine(final_fit) %>%
-  vip(geom = "point", num_features = 19)
-```
-
-```{r}
-prep(rec) %>% juice %>%
-  select(-ANL12_ID) %>%
-  recipe(rufip ~ .) %>%
-  step_corr(all_numeric_predictors()) %>%
-  prep %>%
-  juice
-```
-
-PC1 is temperaturel bio 7 is temp annual range (5-6), 6 is min temp coldest month, 11 mean temp coldest quarter, 4 is seasonality. so basically these are cold tmeps annaul temps and seasonality indicators.
-
-PC2 is max temp warmerst month and quarter positive and negative are basically summer rainfall indicators.
-
-PC3 is precip seasonality and wenss indicators
-
-PC4 unclear
-
-```{r}
-# install.packages("devtools")
-#devtools::install_github("tidymodels/learntidymodels")
-prep(rec) %>% 
-  juice %>%
-  select(-ANL12_ID) %>%
-  recipe(rufip ~ .) %>%
-  step_normalize(all_predictors()) %>%
-  step_pca(all_predictors()) %>%
-  prep() %>% 
-  learntidymodels::plot_top_loadings(component_number <= 5, n = 10) 
-```
-
-```{r}
-remotes::install_github('stevenpawley/colino')
-install.packages("praznik")
-install.packages("FSelectorRcpp")
-library('colino')
-
-rec_filter_mrmr <-
- rec %>%
- step_select_mrmr(
-   all_predictors(),
-   outcome = "rufip",
-   threshold = 0.5
- )
-
-tut2 <- prep(rec_filter_mrmr)
-
-tut2 %>% tidy(3)
-
-tut2 %>% juice()
-
-rec_filter_info <-
- rec %>%
- step_select_infgain(
-   all_predictors(),
-   outcome = "rufip",
-  threshold = 0.75,
-   nthreads = 0
-   #top_p = 5
- )
-
-tut3 <- prep(rec_filter_info)
-
-tut3 %>% tidy(3)
-
-tut3 %>% juice()
-
-```
-
-The permutation variable selection selects 11, 15, 4, 6, 7
-
-The mrmrm seleects 11, 15, 18, 19, 8
-
-BIO11 = Mean Temperature of Coldest Quarter
-
-BIO15 = Precipitation Seasonality (Coefficient of Variation)
-
-BIO18 = Precipitation of Warmest Quarter
-
-> BIO19 = Precipitation of Coldest Quarter\
-> BIO8 = Mean Temperature of Wettest Quarter
-
-with 90% threshold we get 11 and 18, so cold temps and warm season precip\
-\
-infogain gives top 5 as bio1, bio4, bio6, bio7, bio8\
-BIO1 = Annual Mean Temperature
-
-BIO4 = Temperature Seasonality (standard deviation ×100)
-
-BIO6 = Min Temperature of Coldest Month\
-BIO7 = Temperature Annual Range (BIO5-BIO6)
-
-BIO8 = Mean Temperature of Wettest Quarter
-
-top 90% gives bio4 and bio8\
-\
-\
-\
-\
-
-```{r}
-collect_metrics(final_fit)
-```
-
-### Spatial Predictions
-
-```{r}
-chelsa <- terra::rast(chelsa_files) %>%
-  terra::crop(bbox, datatype = 'FLT4S') %>%
-  setNames(chelsa_names)
-
-pred_rufip <- predict(chelsa, extract_fit_parsnip(final_fit), 
-                type = 'prob', cores = available_cores / 2) 
-
-saveRDS(pred, here('data/data-derived/pred_rufip.rds'))
-
-pred_coarse <- terra::aggregate(pred, fact = 10, cores = available.cores)
-
-ggplot() +
-  geom_stars(data = st_as_stars(pred_coarse[[1]])) +
-  geom_sf(data = coasts, color = 'white') +
-  scale_fill_viridis_c() +
-  theme_void()
-
-ggplot() +
-  geom_stars(data = st_as_stars(pred_coarse[[2]])) +
-  geom_sf(data = coasts, color = 'white') +
-  scale_fill_viridis_c(option = 'magma') +
-  theme_void()
-
-```
-
-No plot the data locations and whether they were guessed correctly . . .
-
-### Partial Dependence Plots
-
-```{r}
-library(pdp)
-
-final_fit %>%
-  extract_fit_engine() %>%
-partial(pred.var = "bio1", train = train, 
-        plot.engine = 'ggplot2', prob = TRUE, progress = TRUE) %>%
-              plotPartial(lwd = 2, rug = TRUE)
-```
-
-```{r}
-final_fit %>%
-  extract_fit_engine() %>%
-partial(pred.var = "bio6", train = train, 
-        plot.engine = 'ggplot2', prob = TRUE, progress = TRUE, rug = TRUE) %>%
-              plotPartial(lwd = 2)
-```
-
-```{r}
-final_fit %>%
-  extract_fit_engine() %>%
-partial(pred.var = "bio11", train = train, 
-        plot.engine = 'ggplot2', prob = TRUE, progress = TRUE, rug = TRUE) %>%
-              plotPartial(lwd = 2)
-```
-
-```{r}
-library(DALEXtra)
-
-new <- prep(rec) %>% juice
-explainer <- explain_tidymodels(
-  extract_fit_parsnip(final_fit),
-  new[,-c(1:2)],
-  as.numeric(new$rufip) -1,
-  type = 'classification'
-)
-
-pdp_bio1 <- model_profile(
-  explainer,
-  variables = "bio1",
-  N = 1000
-)
-
-plot(pdp_bio1)
-
-ggplot_pdp <- function(obj, x) {
-  
-  p <- 
-    as_tibble(obj$agr_profiles) %>%
-    mutate(`_label_` = stringr::str_remove(`_label_`, "^[^_]*_")) %>%
-    ggplot(aes(`_x_`, `_yhat_`)) +
-    geom_line(data = as_tibble(obj$cp_profiles),
-              aes(x = {{ x }}, group = `_ids_`),
-              size = 0.5, alpha = 0.05, color = "gray50")
-  
-  num_colors <- n_distinct(obj$agr_profiles$`_label_`)
-  
-  if (num_colors > 1) {
-    p <- p + geom_line(aes(color = `_label_`), size = 1.2, alpha = 0.8)
-  } else {
-    p <- p + geom_line(color = "midnightblue", size = 1.2, alpha = 0.8)
-  }
-  
-  p
-}
-
-pdp_bio6 <- model_profile(
-  explainer,
-  variables = "bio6",
-  N = 1000
-)
-ggplot_pdp(pdp_bio6, bio6)  +
-  labs(x = "Year built", 
-       y = "Sale Price (log)", 
-       color = NULL)
-```
-
-## planning
-
-so this is all great, but what's next? thinking still about sampling issues . . . do I sample background cells where I have presence points? do I thin the presence points or should I use the raw densities? should I still some kind of downsampling of the background? should I use the 1km extracted predictors instead of the grid cell level predictors? some kind of spatial cross validation scheme?
-
-no that I think about it the idea of going back to raw points is attractive
-
-Pros:
-
-1.  faster prepoccsing
-2.  control size of background
-3.  faster climate extraction
-4.  easier to do spatial cv?
-5.  can account for lat with weighted sampling
-6.  more information from multiple presence points
-7.  more informaiton but likely less data overall
-
-Cons:
-
-1.  unrelaistic preciion in location
-2.  more prone to sampling bias?
-3.  lower number of background points might make it not represnt the environment as much
-4.  cleaner interpretaiton of grid cell classification
-
-I should go back to the SDM how to paper by elith and check some of these off
-
-now as a test, I'll see about the reduced models
-
-```{r}
-# pca
-base_rec <- train %>%
-  recipe() %>%
-  update_role(starts_with('bio'), new_role = 'predictor') %>%
-  update_role(rufip, new_role = 'outcome') %>%
-  update_role(ANL12_ID, new_role = 'id') %>%
-  step_bin2factor(all_outcomes()) %>%
-  step_rm(!has_role(c('predictor', 'outcome', 'id')))
-
-rec1 <-  base_rec %>%
-  step_normalize(all_numeric_predictors()) %>%
-  step_pca(num_comp = 5)
- 
-# bart
-rec2 <- train %>%
-  recipe(rufip ~ bio1 + bio12 + bio15 + bio2 + bio3) %>%
-  step_bin2factor(all_outcomes())
-
-# vip
-rec3 <- train %>%
-  recipe(rufip ~ bio11 + bio15 + bio4 + bio6 + bio7) %>%
-  step_bin2factor(all_outcomes())
-
-# reasonable
-rec4 <- train %>%
-  recipe(rufip ~ bio1 + bio12 + bio5 + bio6) %>%
-  step_bin2factor(all_outcomes())
-
-# mrmr
-rec5 <- train %>%
-  recipe(rufip ~ bio11 + bio15 + bio18 + bio19 + bio8) %>%
-  step_bin2factor(all_outcomes())
-  #base_rec %>%
-  #step_select_mrmr(all_predictors(), outcome = 'rufip', top_p = 5)
-
-# infogain
-rec6 <- train %>%
-  recipe(rufip ~ bio1 + bio4 + bio6 + bio7 + bio8) %>%
-  step_bin2factor(all_outcomes())
-# base_rec %>%
-#  step_select_infgain(
-#    all_predictors(),
-#    outcome = "rufip",
-#    nthreads = 0,
-#    top_p = 5
-#  )
-
-params <- rf_mod %>%
-  extract_parameter_set_dials() %>%
-  update(mtry = mtry(c(1, 6)))
-new_rec <- list(base = base_rec, pca = rec1, bart = rec2, vip = rec3, expert = rec4, mrmr = rec5, info = rec6)
-set <- workflow_set(new_rec, list(mod = rf_mod))
-
-registerDoMC(cores = available_cores)
-tuning_rec <- workflow_map(set, 'tune_bayes', resamples = folds, metrics = c_metrics, param_info = params)
-registerDoSEQ()
-```
-
-1,2,6,4,3,5
-
-Interesting, so the PCA performs best, then the BART selected variables, then the top 7 varimp, then varimp top 5, Last two are just bio1 and 12, worse by faris bio11 and 6 which are the top 2 varimp selected ones
-
-So this shows that:
-
-1.  the autoatic varimp fails in the way we'd expect given the colinear predictors
-2.  pca does good as always,
-3.  so does embarcardero
-
-So why not just use PCA then? It'd be nice to have more direct raw variables ot make it easier to look at th epotential niches curther back in time. Projecting the pca into th past and future is risky, and would require an area of applicability test on the climate data (because what if the correlations change?)
-
-But remeber, this is all with a given level of mtry!
-
-Now retuining with varying mtry and min nodes. This says base and PCA best about equally good. Bart a bit beyond that. notably higher variance in the pr_auc metric. Thats the first tier. In the next tier is expert first and then the three filters. MRMR is the best and VIP is generally notably worse. Overall
-
-```{r}
-autoplot(tuning_rec,select_best = TRUE)
-```
-
-```{r}
-rank_results(tuning_rec, select_best = TRUE) %>%
-  select(wflow_id, .metric, mean) %>%
-  pivot_wider(names_from = .metric, values_from = mean)
-```
-
-So MTRY sometimes tries to go for the really low ranges.
-
-```{r}
-map(tuning_rec$result, autoplot)
-```
-
-this makes me want to look at the effect of varying mtry
-
-```{r}
-small_fit <- final_mod <- rand_forest(mode = 'classification',
-                         trees = 1000,
-                         mtry = 3,
-                         min_n = 5) %>%
-  set_engine('ranger',
-             importance = 'permutation',
-             replace = FALSE,
-             sample.fraction = c(0.632 * occ_ratio, 
-                                 0.632 * occ_ratio)) %>%
-  workflow(base_rec, .) %>%
+workflow(all_rec, rf_mod) %>%
   fit(train)
 
-small_fit
 ```
 
-6,15,11,17,18,4,
+### Bayesian additive regression trees
+
+As a complement to traditional random forests, we also employ a Bayesian implementation of tree-based ensemble machine learning methods. Bayesian additive regression trees (BART) allow for flexible modeling through regularization. Flexible benefits of other boosting methods but without the need to tune several hyperparameters. It also works favorably for stepwise model selection, as the Bayesian implementation makes assessing variable importance straightforward.
+
+performacne improvement.
+
+model selection and fitting
+
+we compared several model configurations in our cross validation scheme
+
+Permutation based variable importance
+
+we used partial dependence plots
+
+assessed area of applicability using [@applicable].
+
+### 
+
+### ECOCROP
+
+As a simple baseline for our niche models we also used the semi-mechanistic expert-informed estimates from the ECOCROP model.
+
+```{r ecocrop}
+thresh <- factor(c('min', 'low_opt', 'high_opt', 'max'),
+       levels = c('min', 'low_opt', 'high_opt', 'max'))
+
+rice_list <- list('Rice paddy (Japonica)',
+     'Rice upland (Japonica)',
+     'Rice, paddy (Indica)',
+    'Rice upland (Indica)',
+    'Bulu rice (Javanica)',
+    'African rice') 
+
+rice_list %>%
+  set_names(rice_list) %>%
+  map(~ecocropPars(.x)$parameters) %>%
+  map(as_tibble) %>%
+  map(~mutate(.x, threshold = thresh, .before = 1)) %>%
+  list_rbind(names_to = 'type') %>%
+  select(type, threshold, tavg) %>%
+  pivot_wider(names_from = 'threshold', 
+              values_from = 'tavg')
+```
+
+Niche projections
+
+niche stability
+
+# Results
+
+## Climate influences on rice niche
+
+## Changing rice niches in the Holocene
 
 ```{r}
-extract_fit_engine(small_fit) %>%
-  vip(geom = "point", num_features = 19)
-```
-
-```{r}
-(as.numeric(new$rufip) %>% unique) * -1 + 2
-sdm_step <- embarcadero::bart.step(x.data = new[,-c(1:2)], 
-                      y.data = as.numeric(new$rufip) * -1 + 2)
-```
-
-## BART
-
-```{r}
-#bart_mod <- parsnip::bart(mode = 'classification'#,
-                         # trees = tune(),
-                        #  prior_terminal_node_coef = tune(),
-                         # prior_terminal_node_expo = tune(),
-                        #  prior_outcome_range = tune()
- #                         )
-
-#wflw <- workflow(rec, bart_mod)
-```
-
-```{r}
-registerDoMC(cores = available_cores)
-
-ctrl <- control_bayes(verbose = TRUE, seed = 8154)
-
-tuning <- tune_bayes(bart_mod, rec, folds, initial = 20, control = ctrl, metrics = c_metrics)
-
-registerDoSEQ()
-```
-
-```{r}
-autoplot(tuning)
-```
-
-```{r}
-select_best(tuning)
-```
-
-```{r}
-best_bart <- select_best(tuning) #'mn_log_loss'
-
-saveRDS(best_bart, here('data/data-derived/best_bart.rds'))
-
-best_bart
-```
-
-```{r}
-final_mod <- finalize_workflow(wflw, best_bart) %>% 
-    last_fit(splits, metrics = c_metrics)
-collect_metrics(final_mod)
-```
-
-```{r}
-rf_fit <- rand_forest(mode = 'classification') %>%
-  workflow(rec, .) %>%
-  last_fit(splits, metrics = c_metrics) 
-
-collect_metrics(rf_fit)
-```
-
-```{r}
-final_mod %>%
-  extract_fit_engine() %>%
-  embarcadero::partial(x.vars = c('PC1', 'PC2', 'PC3', 'PC4', 'PC5'),
-                       smooth = 3)
-```
-
-```{r}
-prep(rec) %>%
-  tidy(4, matrix = 'u') %>%
-  group_by(component) %>%
-  arrange(-abs(value), .by_group = TRUE)
-```
-
-```{r}
-sdm <- fit_resamples(wflw, folds)
-```
-
-```{r}
-bbox <- st_bbox(c(xmin = 60, xmax =150, ymin= -20, ymax = 50), crs = 4326)
-
-chelsa_files <- list.files('../../CHELSA_V2_bio_clim', full.names = TRUE)[c(2:20)]#, 60:70)]#70)]
-chelsa_names <- chelsa_files %>% str_split('_') %>% map_chr(~.x[5])
-
-chelsa <- chelsa_files %>%
-  read_stars(shorten = FALSE) %>%
-  st_crop(bbox) %>%
-  setNames(chelsa_names)
-
-#r <- terra::rast(chelsa)
-
-#a <- terra::aggregate(r, factor = 10)
-
-#s <- st_as_stars(a)
-plot(chelsa)
-```
-
-## Ecological niche modeling
-
-Sample background points from the CHELSA data for the ENM.
-
-```{r cache = TRUE}
-# quick and dirty way to mask the chelsa data for generating background points
-mask1 <- read_stars('../campanula/CHELSA_pet_penman_01_1981-2010_V.2.1.tif') %>%
-  st_crop(bbox) %>% # crop mask to bbox?
-  st_as_stars()
-mask <- mask1 / mask1 ; rm(mask1)
-
-set.seed(1536)
-sdm_pts <- mask %>% 
-  as('Raster') %>% 
-  dismo::randomPoints(nrow(progenitor), st_coordinates(progenitor)) %>%
-  as_tibble() %>%
-  st_as_sf(coords = c(1,2), crs = 4326) %>%
-  mutate(rice = 'background') %>%
-  bind_rows(progenitor, .)
-
-sdm_pts2 <- mask %>% 
-  as('Raster') %>% 
-  dismo::randomPoints(nrow(domestic), st_coordinates(domestic)) %>%
-  as_tibble() %>%
-  st_as_sf(coords = c(1,2), crs = 4326) %>%
-  mutate(rice = 'background') %>%
-  bind_rows(domestic, .)
-
-sdm_pts3 <- mask %>% 
-  as('Raster') %>% 
-  dismo::randomPoints(nrow(arch), st_coordinates(arch)) %>%
-  as_tibble() %>%
-  st_as_sf(coords = c(1,2), crs = 4326) %>%
-  mutate(rice = 'background') %>%
-  bind_rows(mutate(arch, rice = 'present'), .)
-
-sdm_pts4 <- mask %>% 
-  as('Raster') %>% 
-  dismo::randomPoints(nrow(oryza), st_coordinates(oryza)) %>%
-  as_tibble() %>%
-  st_as_sf(coords = c(1,2), crs = 4326) %>%
-  mutate(rice = 'background') %>%
-  bind_rows(mutate(oryza, rice = 'present'), .)
-
-ggplot(sdm_pts) +
-  geom_sf(data = coasts) +
-  geom_sf(aes(color = rice), size = 1, alpha = 0.5) +
-  theme_minimal()
-
-ggplot(sdm_pts2) +
-  geom_sf(data = coasts) +
-  geom_sf(aes(color = rice), size = 1, alpha = 0.5) +
-  theme_minimal()
-
-ggplot(sdm_pts3) +
-  geom_sf(data = coasts) +
-  geom_sf(aes(color = rice), size = 1, alpha = 0.5) +
-  theme_minimal()
-```
-
-Extract the climate data at the presence and background points and fit a random forest model.
-
-```{r}
-dat <- st_extract(chelsa, sdm_pts) %>% 
-  bind_cols(sdm_pts) %>%
-  dplyr::select(-contains('geometry')) %>%
-  mutate(rice = as.factor(rice))
-
-mod <- rand_forest(mode = 'classification') %>%
-  set_engine('ranger', importance = 'permutation') %>%
-  fit(rice ~ ., data = dat)
-
-mod
-
-dat2 <- st_extract(chelsa, sdm_pts2) %>% 
-  bind_cols(sdm_pts2) %>%
-  dplyr::select(-contains('geometry'), -continent) %>%
-  mutate(rice = as.factor(rice))
-
-mod2 <- rand_forest(mode = 'classification') %>%
-  set_engine('ranger', importance = 'permutation') %>%
-  fit(rice ~ ., data = dat2)
-
-mod2
-
-dat3 <- st_extract(chelsa, sdm_pts3) %>% 
-  bind_cols(sdm_pts3) %>%
-  dplyr::select(-contains('geometry'), -c(Country, Site, age)) %>%
-  mutate(rice = as.factor(rice))
-
-mod3 <- rand_forest(mode = 'classification') %>%
-  set_engine('ranger', importance = 'permutation') %>%
-  fit(rice ~ ., data = dat3)
-
-mod3
-```
-
-Check the variable importances.
-
-```{r}
-vip(mod, geom = "point", num_features = 15)
-vip(mod2, geom = "point", num_features = 15)
-vip(mod3, geom = "point", num_features = 15)
-```
-
-Map the predicted niche of each dataset.
-
-```{r}
-pred <- chelsa %>%
-  st_crop(bbox) %>%
-  predict(mod, type = 'prob') 
-
-pred2 <- chelsa %>%
-  st_crop(bbox) %>%
-  predict(mod2, type = 'prob') 
-
-pred3 <- chelsa %>%
-  st_crop(bbox) %>%
-  predict(mod3, type = 'prob') 
-
-ggplot() +
-  geom_stars(data = pred['.pred_present'], downsample = 20) +
-  geom_sf(data = coasts, color = 'white') +
-  scale_fill_viridis_c() +
-  theme_void()
-
-ggplot() +
-  geom_stars(data = pred2['.pred_present'], downsample = 20) +
-  geom_sf(data = coasts, color = 'white') +
-  scale_fill_viridis_c() +
-  theme_void()
-
-ggplot() +
-  geom_stars(data = pred3['.pred_present'], downsample = 20) +
-  geom_sf(data = coasts, color = 'white') +
-  scale_fill_viridis_c() +
-  theme_void()
-```
-
-```{r}
-ggplot() +
-  geom_stars(data = pred['.pred_present'], downsample = 10) +
-  geom_sf(data = coasts, color = 'white') +
-  scale_fill_viridis_c() +
-  theme_void()
-
-ggplot() +
-  geom_stars(data = st_as_stars(pred_coarse[[1]])) +
-  geom_sf(data = coasts, color = 'white') +
-  scale_fill_viridis_c() +
-  theme_void()
-```
-
-## Model selection with BART
-
-Use Bayesian additive regression trees for more interpretable niche modeling.
-
-```{r}
-# install.packages('remotes')
-#remotes::install_github('cjcarlson/embarcadero')
-#install.packages('reshape')
-library(embarcadero)
-
-xvars <- names(dat)[!(names(dat) == 'rice')]
-## Run the BART model
-sdm <- bart(y.train = as.numeric(dat$rice)-1,
- x.train=dat[,xvars], 
- keeptrees = TRUE)
-
-summary(sdm)
-
-## Visualize model performance
-
-```
-
-```{r}
-## Predict the species distribution
-map <- predict(sdm, as(merge(chelsa), 'RasterStack'))
-```
-
-```{r cache = TRUE}
-sdm_step <- bart.step(x.data = dat[,xvars], 
-                      y.data = as.numeric(dat$rice) - 1,
-                      full = TRUE)
-```
-
-BIO1 = Annual Mean Temperature
-
-BIO12 = Annual Precipitation
-
-BIO15 = Precipitation Seasonality (Coefficient of Variation)
-
-BIO2 = Mean Diurnal Range (Mean of monthly (max temp - min temp))
-
-BIO3 = Isothermality (BIO2/BIO7) (×100)
-
-```{r fig.width = 10, fig.height=10}
-sdm_simp <- bart(y.train = as.numeric(dat$rufip)-1, # or rice!
- x.train=dat[,c('bio1',  'bio12', 'bio15', 'bio2', 'bio3')], 
- keeptrees = TRUE)
-
-partial(sdm_simp, 
-        x.vars = c('bio1',  'bio12', 'bio15', 'bio2', 'bio3'),
-    ci = TRUE,
-    panel = TRUE,
-    smooth = 3)
-```
-
-```{r}
-p <- pd2bart(sdm_simp, xind = c('bio1', 'bio12'), pl = TRUE)
-```
-
-```{r}
-ggplot() +
-  geom_stars(data = chelsa['bio1'] >= 20, downsample = 20) +
-  geom_sf(data = coasts, color = 'white')
-ggplot() +
-  geom_stars(data = chelsa['bio12'] >= 1000, downsample = 20) +
-  geom_sf(data = coasts, color = 'white')
-
-chelsa %>%
-  st_crop(bbox) %>%
-  transmute(test = bio10 > 26) %>%
-  plot()
-```
-
-```{r}
-covs <- chelsa %>%
-  st_crop(bbox) %>%
-  .[c(1,4, 7,12,13),,] %>%
-  merge() %>%
-  as('Raster')
-
-ggplot() +
-  geom_stars(data = st_as_stars(covs)[,,,1], downsample = 30) +
-  scale_fill_viridis_c() +
-  geom_sf(data = coasts, color = 'white')
-
-ggplot() +
-  geom_stars(data = st_as_stars(covs)[,,,2], downsample = 30) +
-  scale_fill_viridis_c() +
-  geom_sf(data = coasts, color = 'white')
-
-ggplot() +
-  geom_stars(data = st_as_stars(covs)[,,,3], downsample = 30) +
-  scale_fill_viridis_c() +
-  geom_sf(data = coasts, color = 'white')
-
-ggplot() +
-  geom_stars(data = st_as_stars(covs)[,,,4], downsample = 30) +
-  scale_fill_viridis_c() +
-  geom_sf(data = coasts, color = 'white')
-
-ggplot() +
-  geom_stars(data = st_as_stars(covs)[,,,5], downsample = 30) +
-  scale_fill_viridis_c() +
-  geom_sf(data = coasts, color = 'white')
-
-```
-
-```{r}
-sp.bio <- spartial(sdm_step, covs, x.vars = c('bio1', 'bio12', 'bio15', 'bio2', 'bio3'), equal = TRUE) %>%
-  st_as_stars()
-
-ggplot() +
-  geom_stars(data = sp.bio, downsample = c(20,20,0)) +
-  geom_sf(data = coasts, color = 'white') +
-  facet_wrap(~band) +
-  scale_fill_viridis_c(option = 'magma') +
-  theme_void()
-```
-
-## CHELSA-TRACE
-
-```{r}
-bio_trace <- '../../Data/CHELSA/chelsa_trace/bio01/' %>%
-  list.files(full.names = TRUE) %>%
-  .[c(36, 14, 114)] %>%
-  read_stars() %>%
-  st_crop(bbox) 
-
-plot(bio_trace >= 20)
-plot(bio_trace[2] >= 20)
-plot(bio_trace[3] >= 20)
-plot(chelsa[1] >= 20)
-```
-
-```{r}
-bio_trace2 <- '../../Data/CHELSA/chelsa_trace/bio12/' %>%
-  list.files(full.names = TRUE) %>%
-  .[c(36, 14, 114)] %>%
-  read_stars() %>%
-  st_crop(bbox) 
-
-plot(bio_trace2 >= 1000)
-plot(bio_trace2[2] >= 1000)
-plot(bio_trace2[3] >= 1000)
-plot(chelsa[4] >= 1000)
-
-ggplot() +
-  geom_stars(data = bio_trace2[3] - bio_trace2[1], downsample = 20) +
-  scale_fill_distiller(palette = 'RdBu', limits = c(-1100, 1100))
-```
-
-## Global Rice Data
-
-```{r}
-rice_map <- list(here('data', 'monfreda', 'rice_YieldPerHectare.tif'),
-     here('data', 'monfreda', 'rice_HarvestedAreaHectares.tif')) %>%
-  read_stars() %>%
-  st_crop(bbox)
-
-ggplot() +
-  geom_stars(data = rice_map) +
-  scale_fill_viridis_c() +
-  geom_sf(data = coasts, color = 'white')
-
-ggplot() +
-  geom_stars(data = rice_map[2]) +
-  scale_fill_viridis_c(trans = 'log') +
-  geom_sf(data = coasts, color = 'white')
-```
-
-```{r}
-rice_map2 <- crop_spam('rice', var = 'area') %>%
-  st_as_stars() %>%
-  st_crop(bbox)
-
-ggplot() +
-  geom_stars(data = rice_map2[,,,2]) +
-  scale_fill_viridis_c() +
-  geom_sf(data = coasts, color = 'white')
-```
-
-```{r}
-library(mgcv)
-library(stars)
-
-age_gam <- bind_cols(rice, st_coordinates(rice)) %>%
-  rename(x =X, y = Y) %>%
-  select(age, x, y) %>%
-  filter(age > -1200) %>%
-  gam(age ~ s(x, y), data = .)
-
-as_tibble(ref) %>%
-  mutate( pred = predict(age_gam, as_tibble(ref), type = 'response')) 
-
-  ggplot() +
-  geom_stars(data = age) +
-    geom_sf(data = coasts) +
-    scale_fill_viridis_c(direction = -1)
+# it wants time to be positively increasing?
+arch %>%
+    filter(age > -7000) %>%
+  select(age) %>%
+  mutate(time = age * -1) %>%
+  st_extract(st_set_dimensions(erb_decadal, 'time', values = times * -1), ., time_column = 'time', interpolate_time = TRUE) %>%
+  ggplot(aes(time, tas)) +
+  geom_point()
   
-  
-
+  library(tidyEOF)
+plot_scree(erb_decadal %>% filter(time >= -7000), scale = TRUE)
+pat <- get_patterns(erb_decadal %>% filter(time >= -7000), 
+                    k = 2, scale = FALSE, rotate = TRUE)
+plot_eofs(pat) +
+  geom_sf(data = coasts %>% st_crop(asia_bbox))
+plot_amps(pat, scaled = FALSE, c(-4200)) +
+  scale_x_reverse()
 ```
 
-## 
+Now get correlation between each pattern and SST and MAT reconstructions globally.
 
-## Archaeological Data
+Now plot the climate reconstruction and niche data for 9k to present
 
 ```{r}
-library(mgcv)
-rec %>% prep %>% juice %>%
-  gam(arch ~ s(bio1) + s(bio12) + s(bio15) + s(bio2) + s(bio3), data = ., family = binomial()) %>%
-  plot(trans = plogis)
+arch %>%
+  mutate(centur %% 10)
 ```
 
-Look at the distribution of ages of archaeological rice remains.
+## Project changes in rice suitability
 
-```{r}
-rice %>%
-  ggplot(aes(age)) +
-  geom_histogram() +
-  scale_x_continuous(breaks = seq(-14000, 1000, 2000))
-```
+# Discussion
 
-And changing distributions over time.
+Climate/genetic correlations from [@gutaker2020] match these more or less.
 
-```{r, fig.width= 8, fig.height = 6}
-rice %>%
-  mutate(millennium = floor(age/1000)) %>%
-ggplot() +
-  geom_sf() +
-  scale_color_viridis_c() +
-  facet_wrap(~millennium) +
-   geom_sf(data = coasts) +
-  theme_bw()
-```
+accumulated heat days (GDD) is a common measure for rice's thermal niche [@dalpoimguedes2016]. We consistently find GDD is not a good predictor of rice presences at this spatial and temporal scale. At this scale GDD is highly correlated with annual and seasonal temperature changes, while at the local scale its realized gdd also reflects things like local topography, solar radiation, and the particular timing of its planting and growing season initiation. We conclude, that at regional spatial scales, temperature is a better indicator of rice's thermal niche. It is an easier variable to calculate (and indeed GDD estimates are often themselves inferred from temperature cycles) in the past and future and is less dependent on particular cultural practices. Future work should work to connect these regional correlative models with local mechanistic ones, incorporating local terrain information and cultivar and cultural information about the timing and initiation of planting and the growing period.
 
-## 
+## Limitations
 
-TODO
+spatial and temporal correspondence
 
--   5min CHELSA data
+rice occurrence data
 
--   Oryza genus model
+modeling issues presence-background
 
--   world vs asia comparison
+genetic variability
 
--   xgboost
+unceratiny in radioarbon
+
+## Future work
+
+# References
