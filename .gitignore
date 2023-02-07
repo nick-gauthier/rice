@@ -39,3 +39,10 @@ vignettes/*.pdf
 .Renviron
 .DS_Store
 *.tif
+
+data/data-raw/*
+data/data-derived/*
+*.css
+*.woff
+*.js
+data/*
