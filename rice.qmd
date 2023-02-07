@@ -12,12 +12,12 @@ knitr:
 bibliography: references.bib
 ---
 
-```{r setup, message = FALSE, warning = FALSE}
+```{r setup, message = TRUE, warning = TRUE}
 # analysis packages
 library(stars) # spatio-temporal raster processing
 library(tidyverse) # data manipulation and plotting
 library(tidymodels) # machine learning
-library(geodata) # geographic data
+# library(geodata) # geographic data
 library(here) # cross-platform directory structures
 library(readxl) # read excel spreadsheets
 library(exactextractr)
@@ -245,6 +245,7 @@ We compared multiple models, including:
 We evaluated our model based on several skill scores, the J, F index
 
 ```{r}
+# error here effecting the rest?
 c_metrics <- metric_set(f_meas, roc_auc, pr_auc, j_index, sens, spec, kap, precision)
 ```
 
@@ -305,9 +306,13 @@ registerDoSEQ()
 autoplot(wflws)
 prep(expert_res) %>% juice
 
-workflow(all_rec, rf_mod) %>%
-  fit(train)
+registerDoMC(cores = available_cores)
 
+t1 <- workflow(all_rec, rf_mod) %>%
+  fit_resamples(folds, metrics = c_metrics)
+registerDoSEQ()
+
+t1 %>% collect_metrics()
 ```
 
 ### Bayesian additive regression trees
@@ -390,7 +395,13 @@ Now plot the climate reconstruction and niche data for 9k to present
 
 ```{r}
 arch %>%
-  mutate(centur %% 10)
+  mutate(time = (age - age %% 1000) /1000 + 1) %>%
+  ggplot() +
+  geom_stars(data = erb) +
+  scale_fill_distiller(palette = 'RdBu') +
+  geom_sf(size = 0.5) + 
+  geom_sf(data = coasts %>% st_crop(asia_bbox)) +
+  facet_wrap(~time)
 ```
 
 ## Project changes in rice suitability
