@@ -6,14 +6,40 @@ editor: visual
 
 ## Rice occurrence data
 
-```{r, warning=FALSE, fig.asp = .6}
-oryza <- read_tsv('0266607-220831081235567.csv') %>%
-  st_as_sf(coords = c('decimalLongitude', 'decimalLatitude'), crs = 4326) %>%
-  st_crop(world_bbox)
-plot(oryza['species'])
+```{r, warning=FALSE}
+filter_na <- function(tbl, expr){
+   tbl %>% filter({{expr}} %>% replace_na(T))
+}
+# actually should include spontaneo here as nivara
+rice_list <- c("Oryza sativa", "Oryza rufipogon","Oryza officinalis","Oryza barthii" ,"Oryza glaberrima","Oryza nivara")
+oryza <- read_tsv('data/data-raw/0266607-220831081235567.csv') %>%
+      filter_na(species %in% rice_list | verbatimScientificName %in% tolower(rice_list)) %>% 
+    mutate(species = if_else(is.na(species), stringr::str_to_sentence(verbatimScientificName), species)) %>%
+#  select(species, decimalLongitude, decimalLatitude, countryCode, individualCount,
+       #  gbifID, family, taxonRank, coordinateUncertaintyInMeters, year,
+     #    basisOfRecord, institutionCode) %>%
+  filter(!is.na(decimalLongitude))%>%
+  filter(!is.na(decimalLatitude))
+oryza_sf <- oryza %>%
+  st_as_sf(coords = c('decimalLongitude', 'decimalLatitude'), crs = 4326)
+ # st_crop(world_bbox)
+summary(oryza)
+ggplot() +
+  geom_sf(data = oryza, size = .1, aes(color = year))
+
+
+
 oryza %>%
-  pull(species) %>%
-  unique()
+  pull(geo)
+  unique() 
+
+oryza %>%
+  filter(is.na(species)) %>%
+  filter(verbatimScientificName %in% tolower(rice_list)) %>%
+  plot
+geodata::sp_genus('Oryza')
+
+
 ggplot() +
   geom_sf(data = countries, color = NA) +
   geom_sf(data = oryza, size = 0.1, color = 'black') +
@@ -23,7 +49,187 @@ ggplot() +
   geom_sf(data = arch, color = 'red', size = 0.11) +
   theme_minimal()
 
-sp_genus('Oryza')
+geodata::sp_genus('Oryza')
+geodata::sp_occurrence('Oryza', 'glumaepatula', download = FALSE, removeZeros = TRUE)
+```
+
+```{r}
+oryza_sf %>%
+  mutate(year_test = case_when(is.na(year) ~ 'no year',
+                               year < 1970 ~ 'old',
+                               year > 2010 ~ 'new',
+                               TRUE ~ 'ok')) %>%
+  filter(species != 'Oryza sativa') %>%
+ggplot() +
+  geom_sf( size = .5, aes(color = species), alpha = 0.8)+
+  geom_sf(data = coasts) +
+  scale_color_brewer(palette = 'Spectral') +
+  facet_wrap(~year_test, nrow = 3)
+```
+
+```{r}
+oryza_sf %>%
+  mutate(year_test = case_when(is.na(year) ~ 'no year',
+                               year < 1970 ~ 'old',
+                               year > 2010 ~ 'new',
+                               TRUE ~ 'ok')) %>%
+  filter(species == 'Oryza sativa') %>%
+ggplot() +
+  geom_sf( size = .5, alpha = 0.8) +
+  geom_sf(data = coasts) +
+  scale_color_brewer(palette = 'Spectral') +
+  facet_wrap(~year_test, nrow = 3)
+```
+
+What to do about the no years? Its clearly where the most erroneous points are but it also has good coverage of china. need to find a way to filter it futher.
+
+```{r}
+oryza_sf %>%
+  filter(is.na(year)) %>%
+  pull(issue) %>%
+  unique
+  
+```
+
+```{r}
+oryza_sf %>%
+  filter(is.na(year)) %>% 
+  ggplot(aes(color = institutionCode)) +
+  geom_sf()
+
+oryza_sf %>% filter(institutionCode == 'Bioversity-SINGER') %>%
+  select(institutionCode) %>%
+  plot
+```
+
+```{r}
+hist(oryza$year)
+```
+
+```{r}
+ggplot(oryza %>% filter(!is.na(establishmentMeans))) +
+  geom_sf( size = .7, aes(color = establishmentMeans), alpha = .5)+
+  geom_sf(data = coasts)
+```
+
+```{r}
+oryza %>%
+  filter(establishmentMeans == 'Uncertain') %>%
+  pull(issue)
+```
+
+```{r}
+oryza %>%
+  filter(species == 'Oryza rufipogon') %>% 
+  filter(st_coordinates(geometry)[,2] > 35.5) %>%
+  plot
+```
+
+```{r}
+#install.packages('CoordinateCleaner')
+library(CoordinateCleaner)
+rl <- clean_coordinates(x = oryza %>% mutate(decimallatitude = st_coordinates(geometry)[,2],
+                                             decimallongitude = st_coordinates(geometry)[,1]) %>% st_drop_geometry(), centroids_rad = 40000, centroids_detail = 'country', inst_rad = 20000, outliers_td = 100)
+summary(rl)
+plot(rl)
+```
+
+```{r}
+dat_cl <- oryza[rl$.summary,]
+```
+
+```{r}
+
+dat_cl %>%   
+  filter(is.na(year)) %>%
+  st_as_sf(coords = c('decimalLongitude', 'decimalLatitude'), crs = 4326) %>%
+  filter(str_detect(issue, 'COORDINATE_ROUNDED')) %>%
+  ggplot() +
+    geom_sf(aes(color = species)) +
+    geom_sf(data = coasts) +
+  facet_wrap(~species)
+
+  dat_cl %>%   
+  st_as_sf(coords = c('decimalLongitude', 'decimalLatitude'), crs = 4326) %>%
+  filter(str_detect(issue, 'BASIS_OF_RECORD_INVALID')) %>%
+  ggplot() +
+    geom_sf(aes(color = species)) +
+    geom_sf(data = coasts) +
+  facet_wrap(~species)
+
+
+   dat_cl %>%   
+  st_as_sf(coords = c('decimalLongitude', 'decimalLatitude'), crs = 4326) %>%
+  filter(str_detect(issue, 'COORDINATE_ROUNDED|BASIS_OF_RECORD_INVALID'),negate = TRUE) %>%
+  ggplot() +
+    geom_sf(aes(color = species)) +
+    geom_sf(data = coasts) +
+       facet_wrap(~species)
+   
+      dat_cl %>%   
+  st_as_sf(coords = c('decimalLongitude', 'decimalLatitude'), crs = 4326) %>%
+  filter(str_detect(issue, 'COORDINATE_ROUNDED')) %>%
+          filter(str_detect(issue, 'BASIS_OF_RECORD_INVALID')) %>%
+  ggplot() +
+    geom_sf(aes(color = species)) +
+    geom_sf(data = coasts) +
+       facet_wrap(~species)
+      
+        dat_cl %>%   
+  st_as_sf(coords = c('decimalLongitude', 'decimalLatitude'), crs = 4326) %>%
+  filter(str_detect(issue, 'COORDINATE_ROUNDED', negate = TRUE) )%>%
+  #        filter(str_detect(issue, 'BASIS_OF_RECORD_INVALID')) %>%
+  ggplot() +
+    geom_sf(aes(color = species)) +
+    geom_sf(data = coasts) +
+       facet_wrap(~species)
+   
+```
+
+now do it all again
+
+```{r}
+oryza_cln_dat <- read_tsv('data/data-raw/0266607-220831081235567.csv') %>%
+      filter_na(species %in% rice_list | verbatimScientificName %in% tolower(rice_list)) %>%
+    mutate(species = if_else(is.na(species), stringr::str_to_sentence(verbatimScientificName), species)) %>%
+    filter_na(establishmentMeans != 'Uncertain') %>%
+      filter_na(str_detect(issue, 'COORDINATE_ROUNDED', negate = TRUE)) %>%
+      filter_na(str_detect(issue, 'BASIS_OF_RECORD_INVALID', negate = TRUE)) %>%
+
+ select(species, decimalLongitude, decimalLatitude, countryCode, individualCount,
+         gbifID, family, taxonRank, coordinateUncertaintyInMeters, year,
+         basisOfRecord, institutionCode) %>%
+  filter(!is.na(decimalLongitude))%>%
+  filter(!is.na(decimalLatitude)) %>%
+  mutate(decimallatitude = decimalLatitude, decimallongitude = decimalLongitude)
+
+  
+rl <- clean_coordinates(x = oryza_cln_dat, centroids_rad = 50000, centroids_detail = 'country', inst_rad = 20000, outliers_td = 100)
+summary(rl)
+plot(rl)
+  
+dat_cl2 <- oryza_cln_dat[rl$.summary,] %>%
+  filter(!(species == 'Oryza rufipogon' & between(decimallongitude, 0, 20)),# remove obs in africa
+         !(species == 'Oryza rufipogon' & decimallatitude > 30),
+         !(species == 'Oryza officinalis' & decimallatitude > 30),
+          !(species == 'Oryza glaberrima' & decimallongitude > 20),
+                   !(species == 'Oryza sativa' & decimallatitude > 60),
+                            !(species == 'Oryza sativa' & decimallatitude < -30),
+                                     !(species == 'Oryza sativa' & decimallatitude > 35 & between(decimallongitude, 100, 120))) %>% 
+  st_as_sf(coords = c('decimallongitude', 'decimallatitude'), crs = 4326) 
+```
+
+```{r}
+ggplot(dat_cl2) +
+  geom_sf(aes(color = species)) +
+  geom_sf(data = coasts) +
+  scale_color_brewer(palette = 'Spectral') +
+  facet_wrap(~species)
+
+```
+
+```{r}
+saveRDS(dat_cl2, 'data/data-derived/oryza_clean.rds')
 ```
 
 ```{r, cache = TRUE}
@@ -286,9 +492,9 @@ prep(rec) %>% juice %>%
 
 PC1 is temperaturel bio 7 is temp annual range (5-6), 6 is min temp coldest month, 11 mean temp coldest quarter, 4 is seasonality. so basically these are cold tmeps annaul temps and seasonality indicators.
 
-PC2 is max temp warmerst month and quarter positive and negative are basically summer rainfall indicators.
+PC2 is max temp warmestr month and quarter positive and negative are basically summer rainfall indicators.
 
-PC3 is precip seasonality and wenss indicators
+PC3 is precip seasonality and wetness indicators
 
 PC4 unclear
 
@@ -1092,7 +1298,7 @@ arch %>%
 ```
 
 ```{r}
-nh_mean <- read_ncdf('~/Downloads/holocene_reconstruction.nc', 
+nh_mean <- read_ncdf('data/data-raw/holocene_reconstruction.nc', 
                      var = 'recon_tas_nh_mean') %>%
   as_tibble()
   

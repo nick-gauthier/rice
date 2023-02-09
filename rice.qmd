@@ -65,20 +65,8 @@ Hypotheses: Rice's fundamental thermal niche reflects both lower and upper bound
 We used geolocated occurrence records for rice's wild progenitor (Oryza rufipogon G.) from GBIF/CHV via [here](https://www.sciencedirect.com/science/article/pii/S1574954122002631) . Also load occurrence records of domestic rice from the same source.
 
 ```{r warning = FALSE}
-occ <- here('data/data-raw/Datasets of occurrence records of rice and its wild progenitor.xlsx')
-progenitor <- read_excel(occ, skip = 6715) %>%
-  select(-x, -`the wild progenitor`) %>%
-  st_as_sf(coords = 2:1, crs = 4326) %>%
-  st_crop(world_bbox) %>%
-  mutate(rice = 'present')
-
-
-domestic <- read_excel(occ, n_max = 6714) %>%
-  remove_missing() %>%
-  select(-x, -Rice) %>%
-  st_as_sf(coords = 2:1, crs = 4326) %>%
-   st_crop(world_bbox) %>%
-  mutate(rice = 'present')
+oryza <- readRDS(here('data/data-derived/oryza_clean.rds')) %>%
+  select(species)
 ```
 
 ### Archaeological rice data
@@ -165,7 +153,7 @@ Others? PMIP3/TRACE/CHELSA-TRACE
 
 ### Future climate projections
 
-We also aquired downscaled projections of future climate from the CMIP6 archive, also downscaled using the CHELSA algorithm [@brun2022].
+We also acquired downscaled projections of future climate from the CMIP6 archive, also downscaled using the CHELSA algorithm [@brun2022].
 
 # Methods
 
@@ -185,67 +173,73 @@ We thinned the occurrence data to minimize influences from sampling biases. We s
 chelsa <- terra::rast(here('data/data-derived/chelsa_10km.nc')) %>%
     setNames(chelsa_names)
 
-get_bg_pts <- function(dat) {
-  samp <- dismo::gridSample(st_coordinates(dat), chelsa) %>%
-   as_tibble() %>%
-    st_as_sf(coords = c('X', 'Y'), crs = 4326) %>% 
-    mutate(presence = TRUE)
-
-  nrow(dat);nrow(samp)
-
+chelsa_mask <- as(chelsa[['pet_penman_mean']], 'Raster')
   bbox <- raster::extent(-130, 155, -55, 60) 
+set.seed(1234567)
 
-  bg <- dismo::randomPoints(as(chelsa[['pet_penman_mean']], 'Raster'), n_background, 
-                          st_coordinates(samp), bbox) %>%
+dat_pts <- oryza %>%
+  group_nest(species) %>%
+  mutate(n_orig = map_int(data, nrow),
+         thinned = map(data, ~dismo::gridSample(st_coordinates(.x), chelsa_mask) %>%
+                         as_tibble() %>%
+              st_as_sf(coords = c('X', 'Y'), crs = 4326) %>% 
+    mutate(presence = 1)),
+    bg = map(thinned, ~dismo::randomPoints(chelsa_mask, n_background, 
+                          st_coordinates(.x), bbox) %>%
   as_tibble() %>%
   st_as_sf(coords = c('x', 'y'), crs = 4326) %>% 
-  mutate(presence = FALSE)
+  mutate(presence = 0)),
+  dat = map2(thinned, bg, bind_rows)
+  )
 
-  bind_rows(samp, bg)
-}
-
-make_dat <- function(pts) {
-  bind_cols(pts,
-          terra::extract(chelsa, pts, ID = FALSE)) %>%
-  st_drop_geometry() %>%
-  mutate(presence = as.numeric(presence),
-         presence = factor(presence, levels = c(1, 0)))
-}
-
-set.seed(1234567)
-pts_rufip <- get_bg_pts(progenitor)
-pts_sativa <- get_bg_pts(domestic)
-
-dat_rufip <- make_dat(pts_rufip)
-dat_sativa <- make_dat(pts_sativa)
-
-saveRDS(dat_rufip, here('data/data-derived/dat_rufip.rds'))
-saveRDS(dat_sativa, here('data/data-derived/dat_sativa.rds'))
-
-ggplot(pts_rufip) +
+dat_pts %>%
+  select(species, thinned) %>%
+  unnest(thinned) %>%
+  st_sf() %>%
+ggplot() +
   geom_sf(data = countries, color = NA) +
-  geom_sf(size = 0.1, aes(color = presence)) +
+  geom_sf(size = 0.1, aes(color = species)) +
+  facet_wrap(~species) +
+  scale_color_brewer(palette = 'Spectral') +
+  theme_minimal()
+
+
+  
+dat_extract <- dat_pts %>% mutate(n_thin = map_int(thinned, nrow)) %>%
+  select(species, n_orig, n_thin, dat) %>%
+  mutate(dat = map(dat, ~terra::extract(chelsa, .x, ID = FALSE) %>%
+                     bind_cols(.x, .) %>%
+                     mutate(presence = factor(presence, levels = c(1, 0)))))
+  
+dat_extract %>%
+  select(species, dat) %>%
+  unnest(dat) %>%
+  st_sf() %>%
+ggplot() +
+  geom_sf(data = countries, color = NA) +
+  geom_sf(size = 0.1, aes(color = factor(presence, levels = c(0, 1)))) +
+  facet_wrap(~species) +
   scale_color_manual(values = c('black', 'red')) +
   theme_minimal()
 
-ggplot(pts_sativa) +
-  geom_sf(data = countries, color = NA) +
-  geom_sf(size = 0.1, aes(color = presence)) +
-  scale_color_manual(values = c('black', 'red')) +
-  theme_minimal()
+saveRDS(dat_extract, here('data/data-derived/dat.rds'))
 ```
 
 We randomly divided the occurrence data into a train test split, and further subdivided the training data into 5 folds, repeated 5 times, for cross validation. The train-test and 5-fold splits were both stratified by the presence-background outcome variable, so that the proportion of presence to background points was the same throughout. This ensures the models do not overfit to the high-prevalence background points.
 
 ```{r}
-dat <- list(rufip = readRDS(here('data/data-derived/dat_rufip.rds')),
-      sativa = readRDS(here('data/data-derived/dat_sativa.rds')))
+dat_extract <- readRDS(here('data/data-derived/dat.rds'))
 
-dat <- dat$sativa
+dat <- select(dat_extract, species, dat) %>%
+  unnest(dat) %>%
+  st_drop_geometry() %>%
+  select(-geometry) %>%
+  mutate(strata = interaction(species, presence))
+
 set.seed(12345)
-splits <- initial_split(dat, strata = presence)
 train <- training(splits)
-folds <- vfold_cv(train, v = 5, repeats = 5, strata = presence)
+folds <- vfold_cv(train, v = 2, repeats = 5, strata = strata)
+```
 ```
 
 
