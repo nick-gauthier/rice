@@ -43,9 +43,9 @@ world_bbox <- st_bbox(c(xmin = -130, xmax = 155, ymin = -55, ymax = 60), crs = 4
 
 # get country boundaries shapefile for plotting
 countries <- ne_countries(returnclass = "sf", scale = 'large') %>%
-  st_crop(world_bbox)
+  st_crop(asia_bbox)
 coasts <- ne_coastline(returnclass = 'sf') %>%
-  st_crop(world_bbox)
+  st_crop(asia_bbox)
 
 theme_set(theme_bw())
 ```
@@ -64,9 +64,165 @@ Hypotheses: Rice's fundamental thermal niche reflects both lower and upper bound
 
 We used geolocated occurrence records for rice's wild progenitor (Oryza rufipogon G.) from GBIF/CHV via [here](https://www.sciencedirect.com/science/article/pii/S1574954122002631) . Also load occurrence records of domestic rice from the same source.
 
+presence threshold for satellite imagery of 0.5
+
 ```{r warning = FALSE}
-oryza <- readRDS(here('data/data-derived/oryza_clean.rds')) %>%
-  select(species)
+occ <- here('data/data-raw/Datasets of occurrence records of rice and its wild progenitor.xlsx')
+rufipogon <- read_excel(occ, skip = 6715) %>%
+  select(-x, -`the wild progenitor`) %>%
+  st_as_sf(coords = 2:1, crs = 4326) %>%
+  st_crop(asia_bbox) %>%
+  mutate(rice = 'present')
+
+sativa <- read_excel(occ, n_max = 6714) %>%
+  remove_missing() %>%
+  select(-x, -Rice) %>%
+  st_as_sf(coords = 2:1, crs = 4326) %>%
+   st_crop(asia_bbox) %>%
+  mutate(rice = 'present')
+
+ggplot() +
+  geom_sf(data = countries, color = 'white') +
+  geom_sf(data = sativa, size = 0.1, color = 'black') +
+  geom_sf(data = rufipogon, color = 'green', size = 0.1) +
+  labs(title = "Rice occurence data", subtitle = "O. sativa (modern, black), O. rufipogon (modern, green), O. sativa japonica (archaeological, red)", caption = 'source: GBIF, CHV, Rice Archaeological Database') +
+  geom_sf(data = arch, color = 'red', size = 0.11) +
+  theme_minimal()
+```
+
+## Global Rice Data
+
+Lots of potential sources. SPAM is combination data, satellite, and model. [ChinaCropPhen1km](https://figshare.com/articles/dataset/ChinaCropPhen1km_A_high-resolution_crop_phenological_dataset_for_three_staple_crops_in_China_during_2000-2015_based_on_LAI_products/8313530/5) has rice from 2000-2015 daily at 1km. RiceAtlas is a census from 2010ish that's vectorized https://www.nature.com/articles/sdata201774 . Monfreda dissaggregates harvest area and yield census data proportionate to geospatial cropland mpas.[Source](https://iopscience.iop.org/article/10.1088/1748-9326/ac20f4)
+
+Monfreda and Ramankutty -- I think this is just paddy as well. thisis 2008, but there is an update 2012 version by ray, updated again more cently. -- but this is harvested area, which is problematic because you can have multipel harvest a year
+
+MODIS-RICE, good but not avavilable -- different versions from different times
+
+SPAM data high quality but uses preexisting crop suitability maps in their downscaling so its not independent. It also uses satllite maps of just cropland extent, not necessarily of rice.
+
+> We estimate the crop suitable area (SuitArea) from GAEZv3.0 to consider the spatially varied potential suitability for different crops in terms of different thermal, moisture, and soil requirements as an allocating parameter. https://essd.copernicus.org/articles/12/3545/2020/
+
+```{r}
+# this is just "paddy rice" according to documentation
+monfreda_area <- geodata::crop_monfreda('rice', 
+                                        var = 'area_ha', 
+                                        here('data/data-raw')) %>%
+  st_as_stars() %>%
+  st_crop(asia_bbox) %>%
+  setNames('area_ha')
+
+monfreda_fraction <- geodata::crop_monfreda('rice', var = 'area_f', here('data/data-raw')) %>%
+  st_as_stars() %>%
+  st_crop(asia_bbox) %>%
+  setNames('area_f')
+
+
+monfreda_quality <- geodata::crop_monfreda('rice', var = 'area_q', here('data/data-raw')) %>%
+  st_as_stars() %>%
+  st_crop(asia_bbox) %>%
+  setNames('area_q')
+
+ray <- read_stars('data/data-raw/HarvAreaYield_4Crops_95-00-05_Geotiff/Rice/Rice_2000_Area.tif') %>%
+  st_crop(asia_bbox)
+
+ggplot() +
+  geom_stars(data = monfreda_fraction ) +
+  scale_fill_viridis_c() +
+  geom_sf(data = coasts, color = 'white') +
+  geom_sf(data = sativa, size = 0.5)
+
+ggplot() +
+  geom_stars(data = ray > 0.1) +
+  scale_fill_viridis_d() +
+  geom_sf(data = coasts, color = 'white')  +
+  geom_sf(data = sativa, size = 0.5, color = 'white')
+
+
+ggplot() +
+  geom_stars(data = monfreda_area) +
+  scale_fill_viridis_c() +
+  geom_sf(data = coasts, color = 'white') +
+  geom_sf(data = sativa, size = 0.5, color = 'white')
+
+
+ggplot() +
+  geom_stars(data = monfreda_quality) +
+  scale_fill_viridis_c() +
+  geom_sf(data = coasts, color = 'white')
+
+
+## not clear what this function is downlaoding exactly, this gives 6 layers with unclear names . . .
+spam_area <- geodata::crop_spam('rice', 'phys_area', path = here('data/data-raw')) %>%
+  st_as_stars() %>%
+  st_crop(asia_bbox)
+
+ggplot() +
+  geom_stars(data = (spam_area)
+) +
+  scale_fill_viridis_c() +
+  geom_sf(data = coasts, color = 'white') +
+  geom_sf(data = sativa, size = 0.5, color = 'white', alpha = 0.1)
+```
+
+```{r}
+rice_atlas_cal <- read_sf('data/data-raw/dataverse_files/RiceCalendar_v1/RiceCalendar_v1.shp') %>%
+  st_crop(asia_bbox)
+
+ggplot() +
+  geom_sf(data = rice_atlas_cal, aes(fill = NUM_CROP)) +
+  scale_fill_distiller(palette = 'Spectral')
+
+rice_atlas_prod <- read_sf('data/data-raw/dataverse_files/RiceProduction_v1/RiceProduction_v1.shp') %>%
+    st_crop(asia_bbox)
+  
+ggplot() +
+  geom_sf(data = rice_atlas_prod, aes(fill = METHOD)) +
+  scale_fill_brewer(palette = 'Spectral')
+```
+
+```{r}
+read_sf('data/data-raw/13468929/RICA_geometry/geom_rica.shp') %>%
+  st_crop(asia_bbox) %>%
+  plot
+```
+
+Nelson and gumma, just lowland rice for asia... Andrew Nelson, Murali Krishna Gumma. A map of lowland rice extent in the major rice growing countries of Asia. 2015, 37p. IRRI, Los Banos, Philippines.
+
+hard to verigy in china, maybe overpredictsw in norhteast china where there's wheat. also wetlands in indonesia
+```{r}
+irri <- rast('data/data-raw/IRRI Asia Rice Extent Map/asia-rice-extent.tif') %>%
+  aggregate(fact = 20) %>%
+  st_as_stars()
+
+ggplot() +
+  geom_stars(data = irri) +
+  scale_fill_viridis_c() +
+  geom_sf(data = coasts, color = 'white') +
+  geom_sf(data = sativa, color = 'white', size = .05)
+
+ggplot() +
+  geom_stars(data = irri > 0.15) +
+  scale_fill_viridis_d() +
+  geom_sf(data = coasts, color = 'white')
+```
+
+
+GFSAD30
+
+### Chinese Vegetation atlas
+
+```{r}
+rice_ids <- read_excel('../../veget atlas china 2001 gis/veget atlas china 2001 code.xls') %>%
+  filter(str_detect(tolower(`Vegetation formation and sub-formation`), 'rice'))
+veg_atlas <- read_sf('../../veget atlas china 2001 gis/vegetation.shp') %>%
+  select(VEGE_ID) %>%
+  mutate(rice = if_else(VEGE_ID %in% rice_ids$新编号, TRUE, FALSE)) %>%
+  group_by(rice) %>%
+  summarise(geometry = st_union(geometry)) %>%
+  st_transform(4326)
+
+ggplot() +
+  geom_sf(data = veg_atlas, lwd = 0.01, color = NA, aes(fill = rice))
 ```
 
 ### Archaeological rice data
