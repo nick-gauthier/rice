@@ -231,6 +231,10 @@ We used rice occurrence data from archaeological sites using version 2 of the Ri
 
 Also cleaned data from [@gutaker2020]
 
+Stepehens and fuller data ... but its pdf.
+
+syntheis from [@longetal2022]
+
 ```{r arch-rice-data}
 arch <- here('data/data-raw/Archaeological Rice Dataset.xlsx') %>%
   read_excel() %>%
@@ -240,7 +244,43 @@ arch <- here('data/data-raw/Archaeological Rice Dataset.xlsx') %>%
   st_crop(world_bbox) %>%
   arrange(-age) %>%
   filter(age > -10000)
+
+japan_arch <- read_csv('data/data-raw/sciadv.adc9171_data_s1.csv') %>%
+  filter(USED == TRUE) %>% 
+  st_as_sf(coords = c('Longitude', 'Laitude'), crs = 4326) # note "Laitude"
+
+rice <- read_sf('data/data-raw/Rice Archaeological Database.kml') %>%
+  st_zm()
+rice$Description
+#rice <- read_sf(here('data/data-raw/S1Map.kmz')) #%>%
+
+long <- here('data/data-raw/ScienceDirect_files_13Feb2023_15-12-15/1-s2.0-S1040618221005577-mmc2.xlsx') %>%
+  read_excel(skip = 11, n_max = 260) %>%
+  rename(lon = `Longitude (°E)`,
+         lat = `Latitude (°N)`) %>%
+  st_as_sf(coords = c('lon', 'lat'), crs = 4326) %>%
+  st_crop(asia_bbox)
+
+ggplot() +
+      geom_sf(data = countries, color = 'white', lwd = 0.1) +
+      geom_sf(data = arch, color = 'orange', size = 2.5) +
+        geom_sf(data = long, color = 'yellow', size = 2) +
+  geom_sf(data = rice, size = 1) +
+    geom_sf(data = japan_arch, color = 'red', size = .5)
+
 ```
+
+D'Alpoim Guedes and Bocinsky:
+
+> One such useful dataset exists for the People's Republic of China---the China Vegetation Atlas, a 1:1,000,000 scale vegetation distribution map of China of data collected between the 1950s and 1980s ([*57*](https://www.science.org/doi/10.1126/sciadv.aar4491#core-R57))
+>
+> Because of the difficulty of accessing the China Vegetation Atlas in the United States, we have archived it in the Digital Archaeological Record (ID: 442484) at <https://doi.org/10.6067/XCV85B05BG>.
+>
+> The area where rice is grown in China expanded by 6.2 million hectares between 1949 and 1958 alone ([*58*](https://www.science.org/doi/10.1126/sciadv.aar4491#core-R58)). Between roughly 1960 and 1970, the introduction of dwarf varieties followed by hybrid rice further extended the area in which rice was cultivated. With the exception of a few cells, the distribution of rice is confined to the area south of the Yangtze River valley. Some low probability cells in Xinjiang, Inner Mongolia, and Heilongjiang represent expansions of the area under cultivation during the Great Leap Forward and following the introduction of new types of rice. Our analysis uses GDD values for nonhybrid and nondwarf varieties of rice. The extended range that post-1970 varieties are able to occupy may partially explain why a small percentage of rice occupies an area that is in lower niche probabilities ([Fig. 5](https://www.science.org/doi/10.1126/sciadv.aar4491#F5)).
+
+doi:10.6067/XCV8MK6G05 -- crops from guedes and bocinnksy
+
+**Prehistoric evolution of the dualistic structure mixed rice and millet farming in China<https://doi.org/10.1177/0959683617708455>**
 
 ## Climate data
 
