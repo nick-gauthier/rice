@@ -44,6 +44,7 @@ editor: visual
 abstract: |
   Rice is a staple food for a significant portion of the global population, particularly in Asia, where over one billion people rely on it as a staple food source. Understanding rice’s fundamental thermal niche is imperative for predicting how it will respond to future shifts in global climate. Here, we integrate diverse records of contemporary rice cultivation extent, archaeological data spanning rice’s long-term history since its earliest cultivation, and temperature projections for the past, present, and future to assess how climate has influenced and may continue to influence rice’s geographical distribution, productivity, and the adaptive strategies employed by human societies to sustain this crucial crop . We show that Asian rice, both wild and domesticated, has rarely grown in regions with a mean annual temperature exceeding 28°C over the past 10,000 years. By 2080, large areas currently under rice cultivation may surpass this critical threshold. Our findings have significant implications for global food security, as regions heavily reliant on rice cultivation may encounter unprecedented challenges in staple crop production under projected warming.
 bibliography: references.bib
+csl: nature.csl
 ---
 
 ```{r}
@@ -98,7 +99,7 @@ erb_decadal <- readRDS('data/data-derived/erb_decadal.rds')
 
 # Introduction
 
-Domesticated rice (Oryza sativa) serves as a primary food source for over half the global population. More than 90% of the world’s rice is grown in Asia (China, Indonesia, India, Bangladesh, Southeast Asia, Japan, and Pakistan), and one fifth of the world’s population—more than 1 billion people—depends on rice cultivation for their livelihood. Oryza sativa has a deep history of cultivation and domestication beginning at least 7,000 years ago. Over the course of its domestication and subsequent spread, Asian rice has made several adaptations to changes in climate and has expanded into new environmental niches well beyond its original range of cultivation. A clear picture of rice’s shifting environmental niche is critical for understanding how rice will respond to future changes in global climate. Given rising global temperatures, the temperature extremes beyond which rice cannot grow are of particular importance. By synthesizing diverse records of the current extent of rice cultivation with archaeological data on the distribution of rice since its earliest cultivation and domestication, this paper aims to establish O. sativa’s fundamental thermal limits. Our findings indicate a consistent pattern over the past 10,000 years: both wild and domesticated Asian rice varieties have seldom thrived in regions where the mean annual temperature exceeds 28℃. Alarmingly, climate projections estimate that by 2070-2100 the land area exceeding this thermal threshold in Asia’s major rice-producing nations could expand by ten to thirty times.
+Domesticated rice (*Oryza sativa*) serves as a primary food source for over half the global population. More than 90% of the world’s rice is grown in Asia (China, Indonesia, India, Bangladesh, Southeast Asia, Japan, and Pakistan), and one fifth of the world’s population—more than 1 billion people—depends on rice cultivation for their livelihood. *Oryza sativa* has a deep history of cultivation and domestication beginning at least 7,000 years ago. Over the course of its domestication and subsequent spread, Asian rice has made several adaptations to changes in climate and has expanded into new environmental niches well beyond its original range of cultivation. A clear picture of rice’s shifting environmental niche is critical for understanding how rice will respond to future changes in global climate. Given rising global temperatures, the temperature extremes beyond which rice cannot grow are of particular importance. By synthesizing diverse records of the current extent of rice cultivation with archaeological data on the distribution of rice since its earliest cultivation and domestication, this paper aims to establish *O. sativa’s* fundamental thermal limits. Our findings indicate a consistent pattern over the past 10,000 years: both wild and domesticated Asian rice varieties have seldom thrived in regions where the mean annual temperature exceeds 28℃. Alarmingly, climate projections estimate that by 2070-2100 the land area exceeding this thermal threshold in Asia’s major rice-producing nations could expand by ten to thirty times.
 
 Members of the grass family (*Poaceae*), which include staples like rice, maize, wheat, and barley, provide a majority of the global human caloric intake. However, these crops face a looming threat: the rate of anticipated climate change eclipses that of historical niche adaptations in grasses. @cang2016 show that, by 2070, temperatures are projected to rise at a rate 5,000 times faster than what most varieties of *Poaceae* have experienced throughout their evolution. Historically, *Poaceae* experienced temperature shifts ranging from 1-8℃ per million years, yet future projections anticipate changes as swift as 0.02℃ annually [@cang2016].
 
@@ -124,7 +125,7 @@ Here, we integrate multiple lines of evidence from the extensive history of rice
 
 We assess thermal constraints on rice growth by comparing contemporary rice extents estimated from satellite imagery, agricultural censuses, and herbarium collections to indicators of annual and seasonal temperature (@fig-overview). We supplement this empirical work with reviews of various field and lab-based agronomic studies.
 
-![Observed rice extent data and thermal predictors. A) Map of lowland rice extent based on estimates from MODIS satellite imagery by @nelson2015. B) Maps of mean annual temperature (top) and mean maximum daily temperature of the warmest month (bottom) from CHELSA V2 averages for the period 1981-2010 [@karger2017; @Karger2018; @brun2022].](figures/1_data.png){#fig-overview}
+![Observed rice extent data and thermal predictors. A) Map of lowland rice extent (red) based on estimates from MODIS satellite imagery by @nelson2015. B) Maps of mean annual temperature (top) and mean maximum daily temperature of the warmest month (bottom) from CHELSA V2 averages for the period 1981-2010 [@karger2017; @Karger2018; @brun2022].](figures/1_data.png){#fig-overview}
 
 Contemporary rice extents fall within a relatively restricted thermal range. We focus on mean annual temperature (MAT) and mean maximum daily temperature of the warmest month (TMAX) to estimate upper boundary temperatures for contemporary rice occurrences. We do so for several reasons: crop models will often use fixed monthly/seasonal predictors and predictors relative to timing of growing season. These predictors depend on planting dates, which are themselves cultural adaptations to past and current climate. Cultural/agricultural decision making in planting times and the length of the growing season can shift, opening a new avenue for adaptation and confounding statistical analyses. By focusing on large-scale climate measures, we seek to reveal the fundamental upper threshold to which rice has adapted.
 
@@ -577,7 +578,7 @@ left_join(quants_mod, quants_mod_monfreda, by = 'quantile') %>%
 
 ![Present-day rice extent quantiles across three datasets of varying resolution and spatiotemporal support.](data/data-derived/quantiles_table.png){#tbl-quantiles-2 width="6in"}
 
-![Rice distribution data: a) IRRI, b) Monfreda et al., c) GBIF. Occurrence points in red, background points in black.](data_fig.png){#fig-occurrences width="6in"}
+![Rice distribution data: a) IRRI, b) Monfreda et al., c) GBIF. Occurrence points in red, background points in black.](figures/data_fig.png){#fig-occurrences width="6in"}
 
 ```{r}
 #| label: fig-country-summaries
@@ -741,8 +742,9 @@ amp <- plot_amps(pat, scaled = FALSE,
 eof / amp + plot_layout(heights = c(2,1))
 ```
 
-![](images/mat_arch_1d.png){#fig-bootstrap}
+![](figures/mat_arch_1d.png){#fig-bootstrap}
 
-![](images/tmax_arch_1d.png)
+![](figures/mat_arch_1d.png)
 
 # References
+
