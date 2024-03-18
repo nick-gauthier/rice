@@ -5,10 +5,12 @@ date: "11/23/2021"
 output: html_document
 ---
 
+Analysis of daylength/solar insolation in east Asia.
+
 ```{r setup, include=FALSE}
 library(stars)
 library(tidyverse)
-library(insol)
+#library(insol) # not available for my version of R!
 library(chillR)
 bbox <- st_bbox(c(xmin = 100, xmax = 150, ymin = -15, ymax = 47), crs = 4326)
 ref <- st_as_stars(bbox, dx = 0.1) 
@@ -96,7 +98,6 @@ ggsave('growing_season_eastasia.png', width = 6, height = 6)
 ```
 
 ```{r}
-
 ggplot() +
   geom_stars(data = test, aes(fill = daylength, x = x, y = y)) +
   scale_fill_viridis_c(na.value = NA, name = 'Hours') +
@@ -105,10 +106,6 @@ ggplot() +
   ggtitle('Photoperiod on first day above 10°C') +
   labs(x = '', y = '')
 ggsave('photoperiod_eastasia.png', width = 6, height = 6)
-```
-
-
-```{r}
 ```
 
 

@@ -5,6 +5,8 @@ date: "`r Sys.Date()`"
 output: html_document
 ---
 
+Crop thresholds from GAEZ appendicies -- abandoned for now because these aren't as straightforward as they seem.
+
 ```{r setup, include=FALSE}
 library(tidyverse)
 library(readxl)
@@ -12,7 +14,7 @@ library(here)
 ```
 
 ```{r}
-dat <- read_excel(here('data', 'GAEZ4_appendices.xlsx'), sheet = 4, skip = 2) %>%
+dat <- read_excel(here('data', 'GAEZ4_appendices.xlsx'), sheet = 2, skip = 2) %>%
    select(id = `Crop/LUT`,
           name = `Crop/LUT name`, 
           tbase = `Minimum temperature`, 
@@ -52,10 +54,11 @@ dat %>%
 ```{r}
 dat %>%
   pivot_longer(low_bnd:upper_bnd, names_to = 'type', values_to = 'gdd') %>%
-    mutate(type = factor(type, levels = c('low_bnd', 'low_opt', 'upper_opt', 'upper_bnd'))) %>%
-  ggplot(aes(type, group = id)) +
-  geom_line(aes(y = gdd)) +
+    mutate(suitability = if_else(type %in% c('low_bnd', 'upper_bnd'), 0, 1) ) %>%
+  ggplot(aes(gdd, group = id, color = id)) +
+  geom_line(aes(y = suitability)) +
   facet_wrap(~name) +
   theme_bw()
 ```
+
 

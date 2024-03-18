@@ -13,7 +13,7 @@ Quarto enables you to weave together content and executable code into a finished
 When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
 
 ```{r}
-install.packages(c("meteor", "terra"))
+install.packages(c("meteor"))
 remotes::install_github("cropmodels/Recocrop")
 ```
 
@@ -85,7 +85,7 @@ params %>%
   pivot_wider(names_from = threshold, values_from = tavg) %>%
   ggplot(aes(y = reorder(type, low_opt))) +
   geom_linerange(aes(xmin = min, xmax = max)) +
-  geom_linerange(aes(xmin = low_opt, xmax = high_opt), linewidth = 3) +
+  geom_linerange(aes(xmin = low_opt, xmax = high_opt), linewidth = 2) +
   theme_bw() +
   labs(y = 'Variety', x = 'Mean annual temperature (C)')
 ```
@@ -98,7 +98,7 @@ params %>%
 ```
 
 ```{r}
-bio1 <- rast('data/wc/wc2.1_10m/wc2.1_10m_bio_1.tif')
+bio1 <- rast('data/data-raw/wc/wc2.1_10m/wc2.1_10m_bio_1.tif')
 
 plot(bio1 > 10 & bio1 < 36)
 
@@ -178,22 +178,65 @@ run(m)
 ```{r}
 library(dismo)
 
-crop <- getCrop('Rice paddy (Japonica)')
+crop <- dismo::getCrop('Rice paddy (Japonica)')
 
-library('geodata')
-library(here)
-tmin <- worldclim_global('tmin', res = 10, path = here('wc'))
-tavg <- worldclim_global('tavg', res = 10, path = here('wc'))
-prec <- worldclim_global('prec', res = 10, path = here('wc'))
-eco <- dismo::ecocrop(crop, tmin, tavg, prec, rainfed = TRUE)
+#library('geodata')
+#library(here)
+tmin <- geodata::worldclim_global('tmin', res = 10, path = here('data/data-raw/wc'))
+tavg <- geodata::worldclim_global('tavg', res = 10, path = here('data/data-raw/wc'))
+prec <- geodata::worldclim_global('prec', res = 10, path = here('data/data-raw/wc'))
+eco <- dismo::ecocrop(crop, as(tmin, 'Raster'), as(tavg, 'Raster'), as(prec, 'Raster'))
 plot(any(is.na(tmin)))
-
-rice <- ecocropPars('Rice paddy (Japonica)')
+plot(as(prec, 'Raster'))
+plot(eco)
 
 # create a model
-m <- ecocrop(rice)
-predict(m, tavg = tavg, prec = prec) %>% plot
-plot(eco)
+rice <- Recocrop::ecocropPars('Rice, paddy (Indica)')
+m <- Recocrop::ecocrop(rice)
+Recocrop::control(m, get_max = TRUE)
+# is it really using tmin here?
+indica_paddy <- Recocrop::predict(m, ktmp = tmin, tavg = tavg) %>% crop(bbox)
+rice <- Recocrop::ecocropPars('Rice paddy (Japonica)')
+m <- Recocrop::ecocrop(rice)
+Recocrop::control(m, get_max = TRUE)
+japonica_paddy <- Recocrop::predict(m, ktmp = tmin, tavg = tavg) %>% crop(bbox)
+rice <- Recocrop::ecocropPars('Rice upland (Japonica)')
+m <- Recocrop::ecocrop(rice)
+Recocrop::control(m, get_max = TRUE)
+japonica_upland <- Recocrop::predict(m, ktmp = tmin, tavg = tavg, prec = prec) %>% crop(bbox)
+rice <- Recocrop::ecocropPars('Rice upland (Indica)')
+m <- Recocrop::ecocrop(rice)
+Recocrop::control(m, get_max = TRUE)
+indica_upland <- Recocrop::predict(m, ktmp = tmin, tavg = tavg, prec = prec) %>% crop(bbox)
+rice <- Recocrop::ecocropPars('Bulu rice (Javanica)')
+m <- Recocrop::ecocrop(rice)
+Recocrop::control(m, get_max = TRUE)
+javanica <- Recocrop::predict(m, ktmp = tmin, tavg = tavg, prec = prec) %>% crop(bbox)
+
+
+c(indica_paddy, japonica_paddy, indica_upland, japonica_upland, javanica) %>% plot
+```
+
+```{r}
+get_ecocrop <- function(x, tmin, tavg, prec) {
+  rice <- Recocrop::ecocropPars(x)
+  m <- Recocrop::ecocrop(rice)
+  Recocrop::control(m, get_max = TRUE)
+  if(str_detect(x, 'paddy')) {
+      return(Recocrop::predict(m, ktmp = tmin, tavg = tavg))
+
+  } else {
+      return(Recocrop::predict(m, ktmp = tmin, tavg = tavg, prec = prec))
+  }
+}
+
+
+suitabilities_rainfed <- map(rice_list, get_ecocrop, tmin, tavg, prec = prec) %>%
+  do.call(c, .) %>%
+  crop(bbox) %>%
+  setNames(rice_list)
+
+plot(suitabilities_rainfed)
 ```
 
 ```{r}
