@@ -441,29 +441,6 @@ ggplot(offset_dat) +
   scale_color_viridis_c(option = 'magma', name = 'Offset') +
   facet_grid(var~scenario) + 
   labs(x = '', y = '')
-
-# offset_dat %>%
-#   ggplot(aes(scenario, value)) +
-#   geom_boxplot() +
-#   labs(x = 'Scenario', y = 'Offset') +
-#   facet_wrap(~var)
-# 
-# japonica_dat %>%
-#   ggplot(aes(value, y = scenario)) +
-#   geom_density_ridges()
-# 
-# indica_dat %>%
-#   ggplot(aes(scenario, value)) +
-#   geom_boxplot() +
-#   labs(x = 'Scenario', y = 'Offset')
-# 
-# indica_dat %>%
-#   ggplot(aes(value, y = scenario)) +
-#   geom_density_ridges()
-# 
-# japonica_dat %>%
-#   filter(scenario == 'offset_past',
-#          value > .025)
 ```
 
 # Discussion
@@ -518,15 +495,13 @@ After data harmonization---which involved eliminating potential outliers, rectif
 
 We performed a genetic offset analysis to evaluate the potential maladaptation of *Oryza sativa* subspecies *indica* and *japonica* under projected climate change scenarios. The workflow entailed a gene-environment association analysis focusing on the first principal component (PC1) of the three temperature variables, which explained over 81% of the environmental variance across the locations of both rice subspecies. This analysis corrected for population structure and identified outlier single nucleotide polymorphisms (SNPs) as candidate loci from each linkage group. We leveraged a large dataset of geotagged *japonica* and indica accessions and biallelic SNPs filtered for quality and imputed for missing genotypes. The genetic offset, indicative of maladaptation to predicted climates, was calculated using these loci. We averaged model predictions across each climate models (UKESM, MRI, IPSL, etc.) in the ensemble for each Shared Socioeconomic Pathway (SSP).
 
-**Longer version:**
-
 Landraces are representative of the extant genetic diversity of crop species, and frequently exhibit local adaptations from sustained cultivation in specific geographic localities. Sampling landraces of a crop over a wide geographical area and sequencing their genomes can help identify putative adaptive variants associated with different environments. Genetic offset statistics provide measures of maladaptation under different or projected climate scenarios, based on association of genotypes with environmental variation [@gain2023].
 
 Using previously published datasets of geo-tagged rice landraces belonging to the subspecies *O. sativa ssp. Indica* [@gutaker2020] and *O. sativa ssp. Japonica [@alam2021]*, we performed gene-environment association (GEA) analyses with lfmm2 function from the R package LEA (v3.12.2) — on the two subspecies separately — to identify variants associated with variation in temperature [@gain2021]. Temperature was represented by the first principal component (PC1) of mean annual temperature (bio1), mean maximum daily temperature of the warmest month (bio5), and mean daily temperature of the warmest quarter (bio10) from CHELSA V2 averages for the period 1981-2010. PC1 represented 84.6% and 86.12% of the variation in the environmental data for the *indica* and *japonica* datasets, respectively. To correct for population structure in the GEA, we provided the number of ancestral populations, K, as the number of latent factors in our latent factor mixed models [@gain2021]. We selected the number of ancestral populations based on the number of principal components of the genotype matrix that explain a large proportion of the variance, the cross-entropy — a measure of model fit — of different values of K, and information from prior studies [@gutaker2020; @alam2021]. Variants identified in the GEA were clumped within 100 kb of each other, selecting the variant with the lowest p-value as the focal SNP.
 
-We used the genetic.offset function of the R package LEA [@gain2021] to calculate genomic offset statistics for rice landraces of *O. sativa ssp. Indica* and *O. sativa ssp. Japonica* while considering the temperature-associated variants as putative adaptive variants under the SSP1, SSP3, and SSP5 projected pathways that are used to derive greenhouse gas emission scenarios. We also calculated genomic offset statistics under the maximum estimated temperature at each location in the past 10,000 years. For both *japonica* and *indica*, the degree of maladaptation increases from SSP1, which is a best-case scenario with decreasing greenhouse gas emissions, to SSP3 to SSP5, which represents a worse-case scenario (Fig. 6). Rice landraces appear relatively well-adapted under the past maximum temperature scenario, except for some varieties in the northern range of rice cultivation which is consistent with past findings that temperate-adapted northern varieties possibly started growing in these regions after a global temperature decline 4,200 years ago [@gutaker2020] (Fig. 6).
+We used the genetic.offset function of the R package LEA [@gain2021] to calculate genomic offset statistics for rice landraces of *O. sativa ssp. Indica* and *O. sativa ssp. Japonica* while considering the temperature-associated variants as putative adaptive variants under the SSP1, SSP3, and SSP5 projected pathways that are used to derive greenhouse gas emission scenarios. We also calculated genomic offset statistics under the maximum estimated temperature at each location in the past 12,000 years. For both *japonica* and *indica*, the degree of maladaptation increases from SSP1, which is a best-case scenario with decreasing greenhouse gas emissions, to SSP3 to SSP5, which represents a worse-case scenario (Fig. 6). Rice landraces appear relatively well-adapted under the past maximum temperature scenario, except for some varieties in the northern range of rice cultivation which is consistent with past findings that temperate-adapted northern varieties possibly started growing in these regions after a global temperature decline 4,200 years ago [@gutaker2020] (Fig. 6).
 
-To make predictions about where the climate is likely to be optimal for rice-growing in the future, we sampled 10,000 grids from across Asia (possibly show the grids in the supplement) and calculated genomic offset scores for each individual in the environment of each grid, for the three SSP scenarios. We interpret the grid with the lowest offset score as a possible future optimal location for each rice individual. As a measure of the extent of movement that would be required for adaptation, we subtract the absolute value of the current latitude of each rice individual from the absolute value of the centroid latitude of the optimal grid; positive values of this absolute latitudinal distance indicate movement away from the equator.
+To make predictions about where the climate is likely to be optimal for rice-growing in the future, we sampled 10,000 grids from across Asia and calculated genomic offset scores for each individual in the environment of each grid, for the three SSP scenarios. We interpret the grid with the lowest offset score as a possible future optimal location for each rice individual. As a measure of the extent of movement that would be required for adaptation, we subtract the absolute value of the current latitude of each rice individual from the absolute value of the centroid latitude of the optimal grid; positive values of this absolute latitudinal distance indicate movement away from the equator.
 
 # Code Availability
 
@@ -750,10 +725,10 @@ eof / amp + plot_layout(heights = c(2,1))
 ```{r}
 #| label: fig-bootstrap
 #| fig-width: 6
-#| fig-height: 6
-#| fig-cap: ""
+#| fig-height: 12
+#| fig-cap: "Bootstrapped kernel density estimates of rice's thermal extent throughout the Holocene. Bootstrap resampling accounts for uncertainty in radioarbon and phase-based dating of archaeological rice finds."
 
-readRDS('data/data-derived/trace_boot.rds') %>%
+boot_1 <- readRDS('data/data-derived/trace_boot.rds') %>%
   filter(time <= -2000) %>%
   select(rep, MAT:twarm) %>%
   pivot_longer(MAT:twarm) %>%
@@ -768,6 +743,18 @@ ggplot(aes(value, estimate)) +
   pivot_longer(everything()),
   aes(xintercept = as.numeric(value)),
   linetype = 2, color = 'red')
+
+boot2 <- trace_boot %>%
+  pivot_longer(MAT:twarm, values_to = 'temperature') %>%
+  mutate(temperature = units::set_units(temperature, 'degree_c')) %>%
+  group_by(type, rep, name) %>%
+  reframe(quant = quantile(temperature, 0.975, type = 8)) %>%
+  ggplot(aes(quant)) +
+  geom_histogram(position = 'stack', aes(fill = type)) +
+  facet_wrap(~name, scales = 'free_x') +
+  theme_bw()
+
+boot_1 / boot_2 +  plot_annotation(tag_levels = 'A') 
 ```
 
 # References

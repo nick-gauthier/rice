@@ -806,7 +806,8 @@ c14_cleaned <- bind_rows(
 
 cal <- calibrate(c14_cleaned$C14Age, 
                  c14_cleaned$C14AgeError, 
-                 calCurves = c14_cleaned$calib) 
+                 calCurves = c14_cleaned$calib,
+                verbose = FALSE) 
 
 c14_cleaned <- c14_cleaned %>%
   mutate(med_age = medCal(cal),
@@ -825,6 +826,7 @@ phases_cleaned <- gb2018 %>%
   mutate(med_age = median(c(age_lower, age_upper)), .before = age_lower) %>%
   ungroup() %>%
   select(-temp_lower) |>
+  filter(med_age <= 12000) |> # no dates with median age older than 12ka, removes 2x from Diaotonghuan cave and 1 each from Xianrendong and Yuchanyan
   mutate(id = 1:n(),
          id = id + nrow(c14_cleaned)) 
 
@@ -944,11 +946,9 @@ set.seed(5678)
 c14_splits <- c14_cleaned %>%
   select(site, id, med_age) %>%
   mutate(cal_grid = cal$grids, .before = geometry) %>%
-  #slice(which.CalDates(cal, BP > 2000, p = 0.8)) %>% # focus on earlier dates (1,026 to 663!)
   group_bootstraps(group = site, times = nsim)
 
 phase_splits <- phases_cleaned %>%
- # filter(age_lower > 2000) %>% # focus on earlier sites
   select(site, id, age_lower, age_upper) %>%
   group_bootstraps(group = site, times = nsim)
 
@@ -965,10 +965,7 @@ arch_trace <- arch_dat %>%
   st_extract(chelsa_trace, ., time_column = 'med_age', interpolate_time = TRUE) %>%
   st_drop_geometry() %>%
   bind_cols(select(arch_dat, -c(med_age, age_lower, age_upper)), .) %>%
-  remove_missing()
-
-#arch_trace <- readRDS(here('data/data-derived/arch_trace.rds'))
-saveRDS(arch_trace, here('data/data-derived/arch_trace.rds'))
+  remove_missing() # this shouldn't remove anything
 ```
 
 ```{r}
@@ -976,58 +973,37 @@ trace_boot <- boot_joined %>%
   st_extract(chelsa_trace, ., time_column = 'time', interpolate_time = TRUE) %>%
   st_drop_geometry() %>%
   bind_cols(st_drop_geometry(boot_joined) %>% select(-time), .) %>%
-  remove_missing() # some dates are earlier than trace
+  remove_missing() # this shouldn't remove anything
 ```
 
 ```{r}
+#arch_trace <- readRDS(here('data/data-derived/arch_trace.rds'))
+saveRDS(arch_trace, here('data/data-derived/arch_trace.rds'))
 #trace_boot <- readRDS('data/data-derived/trace_boot.rds')
 saveRDS(trace_boot, 'data/data-derived/trace_boot.rds')
 ```
 
 ```{r}
-test_eks <- trace_boot %>%
-  filter(time < -5000) %>%
-  select(rep, MAT) %>%
-  group_by(rep) %>%
-  tidy_kde() 
+trace_boot %>%
+  filter(time <= -2000) %>%
+  select(rep, MAT:twarm) %>%
+  pivot_longer(MAT:twarm) %>%
+  group_by(rep, name) %>%
+  tidy_kde() %>%
+ggplot(aes(value, estimate)) +
+  geom_line(alpha = 0.01, aes(group = rep)) +
+  facet_wrap(~name, scales = 'free_y', nrow = 3)
 
-test_eks2 <- trace_boot %>%
-  filter(time >= -5000, time <= -2000) %>%
-  select(rep, MAT) %>%
-  group_by(rep) %>%
-  tidy_kde()
 
-arch_kde <- trace_boot %>%
+trace_boot %>%
   filter(time <= -2000) %>%
   select(rep, type, MAT:twarm) %>%
   pivot_longer(MAT:twarm) %>%
   group_by(rep, name, type) %>%
-  tidy_kde()
-
-ggplot(test_eks, aes(MAT, estimate)) +
-     geom_line(alpha = 0.01, aes(group = rep)) +
-  geom_line(data = test_eks2, alpha = 0.01, aes(group = rep), color = 'red')
-            
-          
-ggplot(arch_kde, aes(value, estimate)) +
-     geom_line(alpha = 0.01, aes(group = interaction(rep, type), color = type)) +
+  tidy_kde() %>%
+ggplot(aes(value, estimate)) +
+  geom_line(alpha = 0.01, aes(group = interaction(rep, type), color = type)) +
   facet_wrap(~name, scales = 'free_y', nrow = 3)
-```
-
-```{r}
-ggplot(test_eks3, aes(MAT, estimate)) +
-     geom_line(alpha = 0.01, aes(group = rep))
-#ggsave('mat_arch_1d.png', width = 5, height = 3)
-
-ggplot(test_eks4, aes(tmax, estimate)) +
-     geom_line(alpha = 0.01, aes(group = rep))
-
-ggplot(test_eks5 %>% filter(name == 'tmax'), aes(value, estimate)) +
-     geom_line(alpha = 0.01, aes(group = rep))
-#ggsave('tmax_arch_1d.png', width = 5, height = 3)
-
-ggplot(test_eks4, aes(twarm, estimate)) +
-     geom_line(alpha = 0.01, aes(group = rep))
 ```
 
 Looking at bootstrapped quantiles, there's a differences between dates and phases
@@ -1049,35 +1025,19 @@ trace_boot %>%
   group_by(type, rep, name) %>%
   reframe(quant = quantile(temperature, 0.975, type = 8)) %>%
   ggplot(aes(quant)) +
+  geom_histogram(position = 'stack', aes(fill = type)) +
+  facet_wrap(~name, scales = 'free_x') +
+  theme_bw()
+
+trace_boot %>%
+  pivot_longer(MAT:twarm, values_to = 'temperature') %>%
+  mutate(temperature = units::set_units(temperature, 'degree_c')) %>%
+  group_by(type, rep, name) %>%
+  reframe(quant = quantile(temperature, 0.975, type = 8)) %>%
+  ggplot(aes(quant)) +
   geom_histogram() +
   facet_grid(type~name, scales = 'free') +
   theme_bw()
- 
-#bio1_limit <- filter(quants_mod, quantile == 0.975)$bio1
-#bio5_limit <- filter(quants_mod, quantile == 0.975)$bio5
-#bio10_limit <- filter(quants_mod, quantile == 0.975)$bio10
-```
-
-```{r}
-test_eks2d <- trace_boot %>%
-  filter(time < -5000) %>%
-  select(MAT, tmax, rep) %>%
-  filter(rep < 5000) %>%
-  group_by(rep) %>%
-  tidy_kde()
-
-test_eks2d_2 <- trace_boot %>%
-  filter(time >= -5000, time <= -2000) %>%
-  select(MAT, tmax, rep) %>%
-    filter(rep < 5000) %>%
-  group_by(rep) %>%
-  tidy_kde()
-
-
-ggplot(test_eks2d, aes(MAT, tmax)) +
-  geom_contour_ks(aes(group = rep), cont = c(97.5), alpha = 0.1) +
-    geom_contour_ks(data = test_eks2d_2, aes(group = rep), cont = c(97.5), alpha = 0.1, color = 'red') +
-  coord_equal()
 ```
 
 group by bin?
