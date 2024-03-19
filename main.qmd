@@ -61,6 +61,7 @@ library(units)
 library(rnaturalearth)
 library(rnaturalearthdata)
 library(here)
+library(eks)
 
 theme_set(theme_bw())
 
@@ -145,9 +146,10 @@ quants_mod <- fig2_dat %>%
   round(1) %>%
   mutate(quantile = quantiles, .before = 1)
 
-bio1_limit <- filter(quants_mod, quantile == 0.975)$bio1
-bio5_limit <- filter(quants_mod, quantile == 0.975)$bio5
-bio10_limit <- filter(quants_mod, quantile == 0.975)$bio10
+quant_975 <- filter(quants_mod, quantile == 0.975)
+bio1_limit <- quant_975$bio1
+bio5_limit <- quant_975$bio5
+bio10_limit <- quant_975$bio10
 ```
 
 Our results reveal that the vast majority of contemporary rice is grown in regions with MAT below `r bio1_limit`℃ and TMAX of `r bio5_limit`℃ (@fig-kde-modern, Supplementary @tbl-quantiles). These empirical thresholds are consistent with physiological parameters inferred from field-scale agronomic studies and expert knowledge, which estimate that the optimum temperature range for reproductive yield in rice is 23℃-26℃ and that crop viability reaches zero at approximately 40℃ when photosynthesis begins to shut down in C3 plants like rice [@hatfield2011]. As annual and monthly temperatures may not adequately reflect the climate experienced by crops during the growing season, we also compared rice extents to seasonal temperature measures. The majority of rice crops are grown in regions with maximum temperatures of the warmest quarter less than `r bio10_limit`℃. Although this seasonal climate variable is strongly correlated with MAT and TMAX at regional to global scales, this threshold also has physiological significance. Rice biomass and pollen viability declines when maximum temperatures exceed 33℃ [@hatfield2011]. In other words, rice today is not grown in regions where the mean annual temperature is warmer than its optimum temperature for grain yield, where warm-season maximum temperatures exceed its optimum temperature for reproduction, and where summer temperature extremes will reliably stop photosynthesis.
@@ -207,18 +209,18 @@ Between roughly 5000-4000 BP, rice spread both north- and eastward in China [@la
 #| cache: true
 #| fig-cap: Archaeological remains of rice and corresponding temperature distributions throughout the Holocene. A.) Archaeological records of rice distribution over time. See Methods for archaeological data sources. Time units are thousands of years before present (1950 CE). B.) Kernel density estimates of the thermal niche by millennium, with raw data points indicated in black and contemporary rice thermal limits in red. Rice occurrence data were derived from sources listed in the Methods section. Temperature data are derived from CHELSA-TRACE V1.2 (Karger et al. 2022). 
 
-arch_trace <- readRDS(here('data/data-derived/arch_trace.rds')) |>
+arch_trace_dat <- readRDS(here('data/data-derived/arch_trace.rds')) |>
   mutate(mil = (med_age - med_age %% 1000) / 1000 + 1) |>
   filter(between(mil, -9, -2)) |>
   mutate(mil = as.factor(mil))
 
-arch_map <- arch_trace %>%
+arch_map <- arch_trace_dat %>%
   ggplot() +
   geom_sf(data = countries, color = 'white') +
   geom_sf(size = 1, alpha = 0.75) + 
   facet_wrap(~mil, ncol = 4)
 
-arch_dens_mat <- arch_trace %>%
+arch_dens_mat <- arch_trace_dat %>%
   ggplot(aes(MAT, mil)) +
   scale_y_discrete(limits = rev) +
   geom_density_ridges(aes(fill = mil), 
@@ -232,7 +234,7 @@ arch_dens_mat <- arch_trace %>%
   geom_vline(xintercept = as.numeric(bio1_limit), linetype = 2, color = 'red') +
   scale_fill_brewer(palette = 'Spectral', guide = 'none')
 
-arch_dens_tmax <- arch_trace %>%
+arch_dens_tmax <- arch_trace_dat %>%
   ggplot(aes(tmax, mil)) +
   scale_y_discrete(limits = rev) +
   geom_density_ridges(aes(fill = mil), 
@@ -246,7 +248,7 @@ arch_dens_tmax <- arch_trace %>%
   geom_vline(xintercept = as.numeric(bio5_limit), linetype = 2, color = 'red') +
   scale_fill_brewer(palette = 'Spectral', guide = 'none')
 
-arch_dens_twarm <- arch_trace %>%
+arch_dens_twarm <- arch_trace_dat %>%
   ggplot(aes(twarm, mil)) +
   scale_y_discrete(limits = rev) +
   geom_density_ridges(aes(fill = mil), 
@@ -468,7 +470,7 @@ ggplot(offset_dat) +
 
 There is a clear maximum limit of mean annual temperatures over `r round(bio1_limit)`℃ for rice that has not been crossed both over the history of this cultivar's domestication or for the current distribution of its wild progenitor. Forward looking climate projections show that areas that currently house some of the highest densities of rice cultivation on Earth will surpass this limit by 2070 (@fig-future-maps). Today, 675 million people live in Southeast Asia and 1.9 billion people live in South Asia. By 2080 it is estimated that at least this number of people will live in the region that will be above `r round(bio1_limit)`℃. Today, mean annual temperatures greater than `r round(bio1_limit)`℃ are distributed across only a very small area of the planet which includes only a small portion of the gulf desert and the Sahara [@Xu2020]. Beyond the impact of this heat on rice cultivation, this study raises serious concerns about the viability of plant life in regions which will be impacted. The predictions for these areas of the world are out of the historic sample of distribution for rice and have no analogue in the present climate.
 
-Shifting rice production north to regions currently too cold to grow rice will be insufficient to buffer these projected impacts. First, this response does nothing for the billions of people who live in these hotter regions whose lives and livelihoods are directly threatened. This response would also ignore that rice cultivation requires extensive niche construction through the construction of paddies and that abiotic factors such as sufficient water for irrigation and soils which can accommodate paddy rice. Indeed many areas where rice is currently cultivated are already at the limit of these secondary agronomic adaptations [@mahaut2022]. Ethnographic work has shown that in Southeast Asia and China rice paddy soils have been formed over thousands of years of continuous farming which has increased their fertility [@netting1993]. Long-term processes of niche construction like this cannot be easily replaced. 
+Shifting rice production north to regions currently too cold to grow rice will be insufficient to buffer these projected impacts. First, this response does nothing for the billions of people who live in these hotter regions whose lives and livelihoods are directly threatened. This response would also ignore that rice cultivation requires extensive niche construction through the construction of paddies and that abiotic factors such as sufficient water for irrigation and soils which can accommodate paddy rice. Indeed many areas where rice is currently cultivated are already at the limit of these secondary agronomic adaptations [@mahaut2022]. Ethnographic work has shown that in Southeast Asia and China rice paddy soils have been formed over thousands of years of continuous farming which has increased their fertility [@netting1993]. Long-term processes of niche construction like this cannot be easily replaced.
 
 Shifts in planting dates to winter may provide solutions in some regions, however, the higher temperatures are still a concern, as rice is also sensitive to warmer nighttime temperatures in the early growing period [@peng2004]. Likewise, as above, large scale socio-cultural adaptations, while possible, imply significant downstream impacts on regional cultures and economies that can be difficult to anticipate and mitigate ahead of time. In addition, it is likely that tropical varieties of *O. japonica* will need to shift northwards, yet these varieties are highly photosensitive. It will thus be necessary to develop non-photosensitive varieties of tropical *O. japonica*. Research on the past genetic adaptation of rice shows, however, that the development of non-photosensitive temperate *O. japonica* took thousands of years, and it remains an open question if tropical varieties can successfully adapt in the next 40 years. This warming climate also represents fundamental threats to the wild relatives of rice which are currently largely limited to South and Southeast Asia and cannot disperse as quickly without human intervention [@cang2016].
 
@@ -476,7 +478,7 @@ Our focus here on annual and seasonal temperature indicators allows for the inte
 
 While there is some degree of noise in the estimation of genomic offset statistics, they remain powerful predictors of maladaptation in projected climates [@gain2023]. In our analysis, more so than the statistics for individual landraces, the observed trend of increasing genomic maladaptation with worsening greenhouse gas emission scenarios is consistent with high-temperature constraints on historical and modern rice-growing areas.
 
-While we used geo-tagged rice landraces for our genomic offset analyses, most commercially grown rice varieties are improved modern cultivars. Compared to modern cultivars, landraces contain higher genetic diversity [@hour2020; @thomson2007] and adaptations to a wider range of climates [@vasconcelos2013]. Maladaptation of rice landraces under future climates may thus be amplified in modern cultivars. 
+While we used geo-tagged rice landraces for our genomic offset analyses, most commercially grown rice varieties are improved modern cultivars. Compared to modern cultivars, landraces contain higher genetic diversity [@hour2020; @thomson2007] and adaptations to a wider range of climates [@vasconcelos2013]. Maladaptation of rice landraces under future climates may thus be amplified in modern cultivars.
 
 Mitigation of the current climate crisis through, for instance, reduction of greenhouse gas emissions — as in SSP 2.6 — may perhaps be the ideal outcome and solution, but progress on these goals have been insufficient (United Nations Environment Programme 2023). In this vein, the stored germplasm of landraces may serve as important genetic resources to breed climate-adaptive loci into high-yielding commercial rice varieties [@nomura2021; @vasconcelos2013; @mcnally2023]. Simply moving rice cultivation to more optimal growing locations could involve practical constraints such as redirecting land use and displacement or loss of farmer livelihoods. In cases where adequate rice-growing conditions only occur beyond a country’s borders in the future, national economies that are heavily reliant on rice agriculture may collapse.
 
@@ -498,7 +500,7 @@ We collected rice occurrence data from a variety of sources combining informatio
 
 -   Satellite-based estimates of lowland rice extent in Asia [@nelson2015]. This dataset employs high-resolution (500m) presence-absence markers from MODIS observations and offers relatively uniform sampling across both temperate and tropical regions. It provides a more objective approach than spatially biased occurrence records. However, its coverage is limited in East and Southeast Asia. A notable issue is its potential confusion between intercropped wheat in Northeast China and rice. Additionally, distinguishing between wetlands and rice cultivation in Indonesia poses a challenge with this dataset. To minimize such sampling issues, we aggregated the 500m data into 5km grid cells, dropping occurrences with less than 10% coverage to minimize false positives from low-pixel observations. Subsequent analyses of these data proved robust to the exact resolution and coverage threshold used.
 
--   Estimates of paddy rice harvested areas from @monfreda2008 . This dataset, corresponding to the year 2000, integrates satellite-based estimates of cropland with sub-national statistics for rice harvested areas. It utilizes geospatial cropland maps to break down harvest area and yield census data and offers global coverage at approximately 10km resolution. Despite being a widely recognized dataset, especially given its global extent, it has limitations. Countries that lack detailed administrative data at the subnational level, such as Laos and Kazakhstan, can exhibit overly smoothed areas. The metric’s emphasis on the harvested area can be misleading in regions with multiple annual harvests, leading to double or triple counting.
+-   Estimates of paddy rice harvested areas from @monfreda2008. This dataset, corresponding to the year 2000, integrates satellite-based estimates of cropland with sub-national statistics for rice harvested areas. It utilizes geospatial cropland maps to break down harvest area and yield census data and offers global coverage at approximately 10km resolution. Despite being a widely recognized dataset, especially given its global extent, it has limitations. Countries that lack detailed administrative data at the subnational level, such as Laos and Kazakhstan, can exhibit overly smoothed areas. The metric’s emphasis on the harvested area can be misleading in regions with multiple annual harvests, leading to double or triple counting.
 
 -   A synthetic dataset of geolocated occurrence records for rice and its wild progenitor. Sourced from GBIF, the Oryzabase, and other databases, this dataset consists of point-based occurrence records, typically linked with herbarium specimens or germplasm samples from genomic studies [@civán2018; @yang2022]. Given their direct identification, these occurrence records generally offer greater reliability than area-averaged crop occurrences derived from satellites and sub-national statistics. Nonetheless, they are susceptible to spatial sampling bias. For instance, regions like China are underrepresented in GBIF in terms of sampling effort compared to neighboring countries with similar geographical extents, although we made efforts to ameliorate this wherever possible with inclusions of additional accessions from Oryzabase and other sources. Herbarium collections may more accurately sample upland rice varieties, potentially at the expense of larger paddy fields. After creating the full combined datasets, geolocations were checked for anomalous entries then thinned to a uniform grid to minimize irregular spatial sampling.
 
@@ -518,7 +520,7 @@ We performed a genetic offset analysis to evaluate the potential maladaptation o
 
 **Longer version:**
 
-​​Landraces are representative of the extant genetic diversity of crop species, and frequently exhibit local adaptations from sustained cultivation in specific geographic localities. Sampling landraces of a crop over a wide geographical area and sequencing their genomes can help identify putative adaptive variants associated with different environments. Genetic offset statistics provide measures of maladaptation under different or projected climate scenarios, based on association of genotypes with environmental variation [@gain2023].
+Landraces are representative of the extant genetic diversity of crop species, and frequently exhibit local adaptations from sustained cultivation in specific geographic localities. Sampling landraces of a crop over a wide geographical area and sequencing their genomes can help identify putative adaptive variants associated with different environments. Genetic offset statistics provide measures of maladaptation under different or projected climate scenarios, based on association of genotypes with environmental variation [@gain2023].
 
 Using previously published datasets of geo-tagged rice landraces belonging to the subspecies *O. sativa ssp. Indica* [@gutaker2020] and *O. sativa ssp. Japonica [@alam2021]*, we performed gene-environment association (GEA) analyses with lfmm2 function from the R package LEA (v3.12.2) — on the two subspecies separately — to identify variants associated with variation in temperature [@gain2021]. Temperature was represented by the first principal component (PC1) of mean annual temperature (bio1), mean maximum daily temperature of the warmest month (bio5), and mean daily temperature of the warmest quarter (bio10) from CHELSA V2 averages for the period 1981-2010. PC1 represented 84.6% and 86.12% of the variation in the environmental data for the *indica* and *japonica* datasets, respectively. To correct for population structure in the GEA, we provided the number of ancestral populations, K, as the number of latent factors in our latent factor mixed models [@gain2021]. We selected the number of ancestral populations based on the number of principal components of the genotype matrix that explain a large proportion of the variance, the cross-entropy — a measure of model fit — of different values of K, and information from prior studies [@gutaker2020; @alam2021]. Variants identified in the GEA were clumped within 100 kb of each other, selecting the variant with the lowest p-value as the focal SNP.
 
@@ -745,8 +747,27 @@ amp <- plot_amps(pat, scaled = FALSE,
 eof / amp + plot_layout(heights = c(2,1))
 ```
 
-![](figures/mat_arch_1d.png){#fig-bootstrap}
+```{r}
+#| label: fig-bootstrap
+#| fig-width: 6
+#| fig-height: 6
+#| fig-cap: ""
 
-![](figures/mat_arch_1d.png)
+readRDS('data/data-derived/trace_boot.rds') %>%
+  filter(time <= -2000) %>%
+  select(rep, MAT:twarm) %>%
+  pivot_longer(MAT:twarm) %>%
+  group_by(rep, name) %>%
+  tidy_kde() %>%
+ggplot(aes(value, estimate)) +
+  geom_line(alpha = 0.01, aes(group = rep)) +
+  facet_wrap(~name, scales = 'free_y', nrow = 3) +
+  geom_vline(data = quant_975 |>
+  select(-quantile) |>
+  setNames(c('MAT', 'tmax', 'twarm')) |>
+  pivot_longer(everything()),
+  aes(xintercept = as.numeric(value)),
+  linetype = 2, color = 'red')
+```
 
 # References
