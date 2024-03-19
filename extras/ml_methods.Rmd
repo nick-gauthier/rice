@@ -1,0 +1,670 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Methods
+
+All analyses carried out in `R` [@base]. The entire analysis is run in a reproducible \`.qmd\` notebook.
+
+## Preprocessing
+
+All spatial data manipulation was carried out using the `sf`, `stars`, and `terra` packages [@terra; @stars; @sf].
+
+### Data splitting
+
+We randomly divided the occurrence data into a train test split, and further subdivided the training data into 5 folds, repeated 5 times, for cross validation. The train-test and 5-fold splits were both stratified by the presence-background outcome variable, so that the proportion of presence to background points was the same throughout. This ensures the models do not overfit to the high-prevalence background points.
+
+```{r}
+set.seed(12345)
+#splits <- initial_split(st_drop_geometry(dat) %>% dplyr::select(-extent) %>% mutate(
+ #   across(everything(), ~replace_na(.x, 0))
+#  ), strata = presence)
+
+splits <- initial_split(occ_dat, strata = presence)
+train <- training(splits) %>%
+  select(presence, bio1, bio2, bio3, bio4, bio5, bio6, bio7, bio8, bio9, bio10, bio11,bio12,bio13, bio15, bio14) %>%
+  st_join(countries_world['subregion']) %>% 
+  filter(!is.na(subregion))# we lose 578 coastal points here, could do region assignment differently
+folds <- train %>%
+  group_vfold_cv(group = 'subregion', v = 5, balance = 'observations', repeats = 3)
+#folds <- vfold_cv(train, v = 5, repeats = 2, strata = presence)
+
+map(folds$splits, ~assessment(.x) %>% select(presence) %>% plot)
+plot(train %>%
+    select(subregion)) # this gets guiana!
+```
+
+### Variable selection
+
+We compared multiple models, including:
+
+1.  All 19 Bioclimate variables
+2.  Basic variables that can reasonably be reconstructed in the past: MAT, mean temperature of the warmest month, mean temperature of the coldest month, total annual precipitation, (growing degree days, PET, aridity index?)
+3.  Just temperature related variables -- min and max and/or mean and seasonality
+4.  Additional moisture and terrain variables like PET, humidity, VPD, and solar radiation (soil PH? no, not at this scale?)
+5.  Stepwise model selection through BART
+
+Other alternatives: - ramankutty et al 2002 -- gdd5, alpha, soil carbon density kg c/m2 and soil ph - TREELIM model - bio1, bio4, bio5, bio6, bio8, bio12, bio15 -- Edwards and Smoth 2010 - [@mahaut2022] use Bio1, bio4, bio5, bio6, bio12, bio13, bio14, bio15 as indicators of mean and seasonality of precip and temp - minimal model from cang et al 2016, bio1, bio5, bio6, bio12
+
+bio10 bio11 bio12 bio15 bio2 bio8 we always get winter cold, summer heat, growing season temperature, rain, rain seasonality, and diurnal temperature range
+
+```{r}
+base_rec <- train %>%
+  recipe() %>%
+  update_role(starts_with('bio'), new_role = 'predictor') %>%
+  update_role(presence, new_role = 'outcome') %>%
+  update_role(subregion, geometry, new_role = 'extra') %>%
+  step_rm(has_role('extra'))
+ 
+pca_rec <-  base_rec %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_pca(num_comp = 2)
+
+preprocessors <- 
+  list(
+    all = base_rec,
+    pca = pca_rec,
+    bio1 = presence ~ bio1,
+    extremes = presence ~ bio5 + bio6,
+    quarts = presence ~ bio10 + bio11,
+    mix = presence ~ bio1 + bio5,
+    mix_quart = presence ~ bio1 + bio10,
+    expert = presence ~ bio1 + bio5 + bio6 + bio4 + bio8,
+    minimal = presence ~ bio1 + bio5 + bio6,
+       mahaut = presence ~ bio1 + bio5 + bio6 + bio4, 
+       quart = presence ~ bio10 + bio11 + bio2 + bio8,
+   minimal_prec = presence ~ bio1 + bio12 + bio5 + bio6,
+#expert2 = presence ~ bio1 + bio12 + bio5 + bio6 + bio4 + bio15 + bio8,
+minimal2 = presence ~ bio1 + bio12 + bio5 + bio6
+#mahaut2 = presence ~ bio1 + bio12 +  bio5 + bio6 + bio4 + bio13 + bio15 + bio14, 
+#quart2 = presence ~ bio10 + bio11 + bio12 + bio15 + bio2 + bio8
+)
+
+# preprocessors <- 
+#   list(
+#     #expert = presence ~ bio1 + bio12 + bio5 + bio6 + bio4 + bio15 + bio8,
+#    # minimal = presence ~ bio1 + bio12 + bio5 + bio6,
+#     mahaut = presence ~ bio1 + bio12 +  bio5 + bio6 + bio4 + bio13 + bio15 + bio14, 
+#    # quart = presence ~ bio10 + bio11 + bio12 + bio15 + bio2 + bio8
+# )
+```
+
+## Analysis
+
+### Random forests
+
+We fit machine learning models using random forests, an ensemble-based machine learning method that makes predictions from an ensemble of several decisions trees. Random Forests have a high performance and low requirement for tunable parameters. Indeed, preliminary attempts to tune the number of variables selected per node (m_try) and minimum samples per node showed the default values for regression were performant so we elected to use the default values for simplicity.
+
+```{r}
+rf_mod <- rand_forest(mode = 'classification',
+                      trees = 200,
+                   #   min_n = tune(),
+                    #  mtry = tune()
+                      ) %>%
+  set_engine('ranger', replace = FALSE,
+             importance = 'permutation',
+             #splitrule = 'hellinger',
+         #sample.fraction = c(0.632 * prevalence, 
+          #                       0.632 * prevalence)
+             ) # with spatial folds is prevalence the same?
+
+#rf_params_ <- rf_mod %>%
+#  extract_parameter_set_dials() %>%
+#  update(mtry = mtry(c(1L, 15L)))
+```
+
+Used the `tidymodels` framework for R, including the packages `parsnip`, `recipes`, `rsample`, and `yardstick` [@parsnip; @dials; @rsample; @recipes]. The underlying random forest algorithm relied on the implementation in the [@ranger] package.
+
+We used balanced random forests to account for the low prevalence of the occurrence data relative to the environmental background points. Balanced random forests pull equal-sized samples of each category for the creation of each tree in the ensemble. This helps the model learn to detect the rare class, without throwing out potential information about the environmental background as would be required if the entire RF was fit on a single downsample. We grew the random forests by subsampling \~62% of the data without replacement.
+
+```{r}
+classes <- table(train$presence)
+prevalence <- classes[1]/classes[2]
+prevalence
+```
+
+
+### Model fitting
+
+We evaluated our model based on several skill scores, the J, F index
+
+```{r}
+# error here effecting the rest?
+c_metrics <- metric_set(roc_auc, pr_auc, f_meas, j_index, sens, yardstick::spec, yardstick::precision, kap)
+```
+
+```{r, cache = TRUE}
+wflws <- workflow_set(preprocessors, list(rf = rf_mod))# %>%
+  #option_add(param_info = params, id = c('all_rf', 'clim_rf')) %>%
+   # option_add(param_info = params_min, id = c('minimal_rf'))
+
+registerDoMC(cores = available_cores)
+#wflw_fits <- workflow_map(wflws, 'tune_bayes', initial = 20, resamples = folds, 
+ #                         metrics = c_metrics,  seed = 3, verbose = TRUE)
+#wflw_fits <- workflow_map(wflws, 'tune_grid', grid = 5, resamples = folds, 
+#                          metrics = c_metrics,  seed = 3, verbose = TRUE)
+wflw_fits <- workflow_map(wflws, 'fit_resamples', resamples = folds, 
+                          metrics = c_metrics,  seed = 3, verbose = TRUE)
+registerDoSEQ()
+
+saveRDS(wflw_fits, 'data/data-derived/wflw_fits.rds')
+```
+
+## Model evaluation
+
+performance improvement.
+
+model selection and fitting
+
+we compared several model configurations in our cross validation scheme
+
+Permutation based variable importance
+
+we used partial dependence plots
+
+assessed area of applicability using [@applicable].
+
+```{r}
+wflw_fits <- readRDS(here('data/data-derived/wflw_fits.rds'))
+
+rank_results(wflw_fits, rank_metric = 'pr_auc') %>%
+  ggplot(aes(rank, mean, color = wflow_id))+
+  geom_linerange(aes(ymin = mean - std_err * qnorm(0.95), ymax = mean + std_err * qnorm(0.95))) +
+  geom_point() +
+  facet_wrap(~.metric, scales = 'free_y')
+```
+
+```{r}
+autoplot(wflw_fits, id = 'all_rf')
+autoplot(wflw_fits, id = 'mahaut_rf')
+autoplot(wflw_fits, id = 'expert_rf')
+autoplot(wflw_fits, id = 'minimal_rf')
+```
+
+For the f_meas, mtry 8 for all model and 2 for the others --- close to defaults but more conservative by a bit. min_n 7, 10, and 6.
+
+```{r}
+wflw_fits %>% 
+  extract_workflow_set_result("all_rf") %>% 
+  select_best(metric = 'f_meas')
+wflw_fits %>% 
+  extract_workflow_set_result("expert_rf") %>% 
+  select_best(metric = 'f_meas')
+wflw_fits %>% 
+  extract_workflow_set_result("minimal_rf") %>% 
+  select_best(metric = 'f_meas')
+wflw_fits %>% 
+  extract_workflow_set_result("mahaut_rf") %>% 
+  select_best(metric = 'f_meas')
+```
+
+Interestingly pr_auc selects mtry 2 for both all and expert --- I wonder what the variable importance looks like in al for mtry 2. min_n is 10, 7, 4.
+
+```{r}
+wflw_fits %>% 
+  extract_workflow_set_result("all_rf") %>% 
+  select_best(metric = 'pr_auc')
+wflw_fits %>% 
+  extract_workflow_set_result("expert_rf") %>% 
+  select_best(metric = 'pr_auc')
+wflw_fits %>% 
+  extract_workflow_set_result("minimal_rf") %>% 
+  select_best(metric = 'pr_auc')
+wflw_fits %>% 
+  extract_workflow_set_result("mahaut_rf") %>% 
+  select_best(metric = 'pr_auc')
+
+
+wflw_fits %>% 
+  extract_workflow_set_result("all_rf") %>% 
+  select_best(metric = 'roc_auc')
+wflw_fits %>% 
+  extract_workflow_set_result("expert_rf") %>% 
+  select_best(metric = 'roc_auc')
+wflw_fits %>% 
+  extract_workflow_set_result("mahaut_rf") %>% 
+  select_best(metric = 'roc_auc')
+wflw_fits %>% 
+  extract_workflow_set_result("minimal_rf") %>% 
+  select_best(metric = 'roc_auc')
+wflw_fits %>% 
+  extract_workflow_set_result("quart_rf") %>% 
+  select_best(metric = 'roc_auc')
+
+collect_metrics(wflw_fits, ) %>%
+  filter(.metric == 'pr_auc') %>% 
+  group_by(wflow_id) %>%
+  summarise(pr_auc = max(mean)) %>% 
+  arrange(-pr_auc)
+collect_metrics(wflw_fits, ) %>%
+  filter(.metric == 'roc_auc') %>% 
+  group_by(wflow_id) %>%
+  summarise(roc_auc = max(mean)) %>% 
+  arrange(-roc_auc)
+collect_metrics(wflw_fits, ) %>%
+  filter(.metric == 'f_meas') %>% 
+  group_by(wflow_id) %>%
+  summarise(f_meas = max(mean)) %>% 
+  arrange(-f_meas)
+```
+
+Refit the wining model to get predictions
+
+Bio3, bio11, rsdsrange ... bio4, 10, 1, rsds min, pet min. for simples model is mean temp coldest and mean.
+
+just bioclim gives 3, 6, 11, 1, 10, 4, 12
+
+```{r}
+mod1 <- wflw_fits %>% 
+  extract_workflow_set_result("all_rf") %>% 
+  select_best(metric = 'roc_auc') %>%
+  finalize_workflow(extract_workflow(wflw_fits, 'all_rf'), .) %>%
+  fit(train)
+
+mod2 <- wflw_fits %>% 
+  extract_workflow_set_result("expert_rf") %>% 
+  select_best(metric = 'roc_auc') %>%
+  finalize_workflow(extract_workflow(wflw_fits, 'expert_rf'), .) %>%
+  fit(train)
+
+mod3 <- wflw_fits %>% 
+  extract_workflow_set_result("quart_rf") %>% 
+  select_best(metric = 'roc_auc') %>%
+  finalize_workflow(extract_workflow(wflw_fits, 'quart_rf'), .) %>%
+  fit(train)
+
+mod4 <- wflw_fits %>% 
+  extract_workflow_set_result("minimal_rf") %>% 
+  select_best(metric = 'roc_auc') %>%
+  finalize_workflow(extract_workflow(wflw_fits, 'minimal_rf'), .) %>%
+  fit(train)
+
+pred1 <- chelsa %>%
+    mask(chelsa[[1]]) %>%
+  predict(mod1, type = 'prob', na.rm = TRUE) #%>%
+  #st_as_stars() %>%
+  #setNames('presence')
+
+plot(pred1)
+pred2 <- chelsa %>%
+  predict(mod2, type = 'prob') %>%
+  st_as_stars()%>%
+  setNames('presence')
+
+pred3 <- chelsa %>%
+  predict(mod3, type = 'prob') %>%
+  st_as_stars()%>%
+  setNames('presence')
+
+pred4 <- chelsa %>%
+  mask(chelsa[[1]]) %>%
+  predict(mod4, type = 'prob', na.rm = TRUE) #%>%
+ # st_as_stars()%>%
+#  setNames('presence')
+
+plot(pred4)
+
+ggplot() +
+  geom_stars(data = pred1[,,,1])  +
+  #geom_sf(data = coasts, color = 'black') +
+  scale_fill_viridis_c(na.value = 'white', limits = c(0, 1)) +
+  theme_void()
+ggplot() +
+  geom_stars(data = pred2[,,,1])  +
+  #geom_sf(data = coasts, color = 'black') +
+  scale_fill_viridis_c(na.value = 'white', limits = c(0, 1)) +
+  theme_void()
+ggplot() +
+  geom_stars(data = pred3[,,,1])  +
+  #geom_sf(data = coasts, color = 'black') +
+  scale_fill_viridis_c(na.value = 'white', limits = c(0, 1)) +
+  theme_void()
+
+ggplot() +
+  geom_stars(data = pred4[countries])  +
+  #geom_sf(data = coasts, color = 'black') +
+  scale_fill_viridis_c(na.value = 'white', limits = c(0, 1)) +
+  theme_void()
+```
+```{r}
+c(chelsa[['bio5']], pred1[[1]]) %>%
+ as_tibble() %>%
+ remove_missing() %>% plot()
+```
+
+
+prediction
+
+```{r}
+future_pred <- cmip6 %>%
+  predict(mod1, type = 'prob', na.rm = TRUE) %>%
+    st_as_stars() %>%
+  setNames('future')
+
+future_pred2 <- cmip6 %>%
+  predict(mod2, type = 'prob', na.rm = TRUE) %>%
+    st_as_stars() %>%
+  setNames('future')
+
+future_pred3 <- cmip6 %>%
+  predict(mod3, type = 'prob', na.rm = TRUE) %>%
+    st_as_stars() %>%
+  setNames('future')
+
+future_pred4 <- cmip6 %>%
+  predict(mod4, type = 'prob', na.rm = TRUE) %>%
+    st_as_stars() %>%
+  setNames('future')
+```
+
+```{r}
+ggplot() +
+  geom_stars(data = future_pred[,,,1]) +
+  scale_fill_viridis_c(limits = c(0, 1)) +
+ # geom_sf(data = coasts %>% st_crop(asia_bbox), color = 'white') +
+    theme_void()
+ggplot() +
+  geom_stars(data = pred1[,,,1])  +
+  #geom_sf(data = coasts %>% st_crop(asia_bbox), color = 'white') +
+  scale_fill_viridis_c(limits = c(0, 1)) +
+  theme_void()
+ggplot() +
+  geom_stars(data = future_pred2[,,,1]) +
+  scale_fill_viridis_c(limits = c(0, 1)) +
+ # geom_sf(data = coasts %>% st_crop(asia_bbox), color = 'white') +
+    theme_void()
+ggplot() +
+  geom_stars(data = pred2[,,,1])  +
+  #geom_sf(data = coasts %>% st_crop(asia_bbox), color = 'white') +
+  scale_fill_viridis_c(limits = c(0, 1)) +
+  theme_void()
+ggplot() +
+  geom_stars(data = future_pred3[,,,1]) +
+  scale_fill_viridis_c(limits = c(0, 1)) +
+ # geom_sf(data = coasts %>% st_crop(asia_bbox), color = 'white') +
+    theme_void()
+ggplot() +
+  geom_stars(data = pred3[,,,1])  +
+  #geom_sf(data = coasts %>% st_crop(asia_bbox), color = 'white') +
+  scale_fill_viridis_c(limits = c(0, 1)) +
+  theme_void()
+
+ggplot() +
+  geom_stars(data = future_pred4[,,,1]) +
+  scale_fill_viridis_c(limits = c(0, 1)) +
+ # geom_sf(data = coasts %>% st_crop(asia_bbox), color = 'white') +
+    theme_void()
+ggplot() +
+  geom_stars(data = pred4[,,,1])  +
+  #geom_sf(data = coasts %>% st_crop(asia_bbox), color = 'white') +
+  scale_fill_viridis_c(limits = c(0, 1)) +
+  theme_void()
+
+
+ggplot() +
+  geom_stars(data = future_pred - pred1)  +
+  geom_sf(data = coasts %>% st_crop(asia_bbox), color = 'black') +
+  scale_fill_distiller(limits = c(-1, 1), palette = 'RdBu', direction = 1) +
+  theme_void()
+ggplot() +
+  geom_stars(data = future_pred2 - pred2)  +
+  geom_sf(data = coasts %>% st_crop(asia_bbox), color = 'black') +
+  scale_fill_distiller(limits = c(-1, 1), palette = 'RdBu', direction = 1) +
+  theme_void()
+ggplot() +
+  geom_stars(data = future_pred3 - pred3)  +
+  geom_sf(data = coasts %>% st_crop(asia_bbox), color = 'black') +
+  scale_fill_distiller(limits = c(-1, 1), palette = 'RdBu', direction = 1) +
+  theme_void()
+
+ggplot() +
+  geom_stars(data = future_pred4 - pred4)  +
+  geom_sf(data = coasts %>% st_crop(asia_bbox), color = 'black') +
+  scale_fill_distiller(limits = c(-1, 1), palette = 'RdBu', direction = 1) +
+  theme_void()
+```
+```{r}
+past_pred <- c('../../Data/CHELSA/chelsa_trace/bio01/CHELSA_TraCE21k_bio01_20_V1.0.tif',
+     '../../Data/CHELSA/chelsa_trace/bio12/CHELSA_TraCE21k_bio12_20_V1.0.tif',
+     '../../Data/CHELSA/chelsa_trace/bio05/CHELSA_TraCE21k_bio05_20_V1.0.tif',
+     '../../Data/CHELSA/chelsa_trace/bio06/CHELSA_TraCE21k_bio06_20_V1.0.tif'
+  ) %>%
+  rast %>%
+  aggregate(fact = 5) %>%
+  crop(bbox) %>%
+  setNames(c('bio1', 'bio12', 'bio5', 'bio6')) %>%
+   predict(mod4, type = 'prob', na.rm = TRUE) 
+
+past_pred2 <- c('../../Data/CHELSA/chelsa_trace/bio01/CHELSA_TraCE21k_bio01_-50_V1.0.tif',
+     '../../Data/CHELSA/chelsa_trace/bio12/CHELSA_TraCE21k_bio12_-50_V1.0.tif',
+     '../../Data/CHELSA/chelsa_trace/bio05/CHELSA_TraCE21k_bio05_-50_V1.0.tif',
+     '../../Data/CHELSA/chelsa_trace/bio06/CHELSA_TraCE21k_bio06_-50_V1.0.tif'
+  ) %>%
+  rast %>%
+  aggregate(fact = 5) %>%
+  crop(bbox) %>%
+  setNames(c('bio1', 'bio12', 'bio5', 'bio6')) %>%
+   predict(mod4, type = 'prob', na.rm = TRUE) 
+t1 <- (past_pred2[[1]] - past_pred[[1]]) %>%
+  mask(.,resample(chelsa_mask, .)) %>%
+  st_as_stars() 
+ggplot() +
+  geom_stars(data = t1) +
+  scale_fill_distiller(limits = c(-1, 1), palette = 'RdBu')
+```
+
+
+Variable importance plots
+
+```{r}
+mod1 %>%
+  extract_fit_engine() %>%
+  vip(geom = "point", num_features = 19)
+
+mod2 %>%
+  extract_fit_engine() %>%
+  vip(geom = "point")
+mod3 %>%
+  extract_fit_engine() %>%
+  vip(geom = "point")
+```
+
+Partial Dependence Plots
+
+```{r}
+library(pdp)
+mod3 %>%
+  extract_fit_engine() %>%
+  pdp::partial(pred.var = 'bio11', train = train, 
+        plot.engine = 'ggplot2', prob = TRUE, progress = TRUE) %>%
+              plotPartial(lwd = 2, rug = TRUE, train = train)
+
+mod3 %>%
+  extract_fit_engine() %>%
+  pdp::partial(pred.var = 'bio10', train = train, 
+        plot.engine = 'ggplot2', prob = TRUE, progress = TRUE) %>%
+              plotPartial(lwd = 2, rug = TRUE, train = train)
+mod3 %>%
+  extract_fit_engine() %>%
+  pdp::partial(pred.var = 'bio2', train = train, 
+        plot.engine = 'ggplot2', prob = TRUE, progress = TRUE) %>%
+              plotPartial(lwd = 2, rug = TRUE, train = train)
+mod3 %>%
+  extract_fit_engine() %>%
+  pdp::partial(pred.var = 'bio12', train = train, 
+        plot.engine = 'ggplot2', prob = TRUE, progress = TRUE) %>%
+              plotPartial(lwd = 2, rug = TRUE, train = train)
+
+
+mod3 %>%
+  extract_fit_engine() %>%
+  pdp::partial(pred.var = 'bio10', train = train, ice = TRUE, alpha = .05,
+        plot.engine = 'ggplot2', prob = TRUE, progress = TRUE, plot = TRUE, lwd = 2, rug = TRUE,smooth = TRUE)
+```
+
+### GAM
+
+bio10 bio11 bio12 bio15 bio2 bio8
+
+```{r}
+library(mgcv)
+## add weights!
+test_gam1 <- train %>%
+  mutate(presence = factor(presence, levels = c(0, 1))) %>%
+    bam(presence ~ s(bio10,  bs = 'cr', k = 6)+ 
+          s(bio11, bs = 'cr', k = 6), 
+        data = ., family = binomial(), select = FALSE)
+
+test_gam2 <- train %>%
+  mutate(presence = factor(presence, levels = c(0, 1))) %>%
+    bam(presence ~ s(bio5,  bs = 'cr', k = 6)+ 
+          s(bio6, bs = 'cr', k = 6) +
+          s(bio12, bs = 'cr', k = 6), 
+        data = ., family = binomial(), select = TRUE)
+
+test_gam3 <- train %>%
+  mutate(presence = factor(presence, levels = c(0, 1))) %>%
+    bam(presence ~ s(bio10,  bs = 'cr', k = 5)+ 
+          s(bio11, bs = 'cr', k = 5) + 
+          s(bio5,  bs = 'cr', k = 5)+
+          s(bio6,  bs = 'cr', k = 5)+
+          s(bio12, bs = 'cr', k = 5), 
+        data = ., family = binomial(), select = TRUE)
+test_gam4 <- train %>%
+  mutate(presence = factor(presence, levels = c(0, 1))) %>%
+    bam(presence ~ s(bio1,  bs = 'cr', k = 5)+ 
+          s(bio2,  bs = 'cr', k = 5) + 
+          s(bio4,  bs = 'cr', k = 5)+
+          s(bio12, bs = 'cr', k = 5), 
+        data = ., family = binomial(), select = TRUE)
+
+test_gam5 <- train %>%
+  mutate(presence = factor(presence, levels = c(0, 1))) %>%
+    bam(presence ~ s(bio1,  bs = 'cr', k = 5)+ 
+          s(bio12, bs = 'cr', k = 5), 
+        data = ., family = binomial(), select = TRUE)
+
+summary(test_gam1)
+
+plot(test_gam,rug = TRUE)
+plot(test_gam1, trans = plogis, rug = TRUE)
+plot(test_gam2, trans = plogis, rug = FALSE, shift = coef(test_gam2)[1], seWithMean = TRUE, page = 1)
+plot(test_gam3, trans = plogis, rug = TRUE, shift = coef(test_gam2)[1], seWithMean = TRUE, page = 1)
+plot(test_gam4, trans = plogis, rug = TRUE)
+plot(test_gam5, trans = plogis, rug = TRUE)
+
+plot(test_gam3)
+rast_pred <- predict(chelsa, test_gam2, type = 'response')
+plot(mask(rast_pred, chelsa[[1]]))
+
+plot(mask(rast_pred > .20, chelsa[[1]]))
+```
+
+```{r}
+train %>%
+  mutate(presence = factor(presence, levels = c(0, 1))) %>%
+    bam(presence ~ s(bio10,  bs = 'cr', k = 5), data = ., family = binomial(), select = TRUE) %>%
+  plot(trans = plogis)
+
+train %>%
+  mutate(weight = if_else(presence == 1, 1, prevalence)) %>%
+  mutate(presence = factor(presence, levels = c(0, 1))) %>%
+    bam(presence ~ s(bio5,  bs = 'cr', k = 5) + s(gst, bs = 'cr', k = 5), data = ., family = binomial(), weights = .$weight, select = TRUE) %>%
+  plot(., trans = plogis, shift = coef(.)[1], seWithMean = TRUE)
+
+train %>%
+  mutate(presence = factor(presence, levels = c(0, 1))) %>%
+    bam(presence ~ s(bio1,  bs = 'cr', k = 5), data = ., family = binomial(), select = TRUE) %>%
+  plot(trans = plogis)
+
+train %>%
+  mutate(presence = factor(presence, levels = c(0, 1))) %>%
+    bam(presence ~ te(bio5, bio6), data = ., family = binomial(), select = TRUE) %>%
+  plot(scheme = 1)
+```
+
+```{r}
+plot((chelsa[['bio1']] > 30));plot(cmip6[['bio1']] > 30)
+plot(cmip6[['bio1']])
+plot(chelsa[['bio1']] - cmip6[['bio1']])
+```
+
+```{r}
+plot(chelsa[['bio12']]) ;plot(cmip6[['bio12']])
+plot(chelsa[['bio5']] > 36) ;plot(cmip6[['bio5']] > 36)
+plot(chelsa[['bio11']] > 25) ;plot(cmip6[['bio11']] > 25)
+```
+
+### ECOCROP
+
+As a simple baseline for our niche models we also used the semi-mechanistic expert-informed estimates from the ECOCROP model.
+
+```{r ecocrop}
+thresh <- factor(c('min', 'low_opt', 'high_opt', 'max'),
+       levels = c('min', 'low_opt', 'high_opt', 'max'))
+
+rice_list <- list('Rice paddy (Japonica)',
+                       'Rice, paddy (Indica)',
+     'Rice upland (Japonica)',
+    'Rice upland (Indica)',
+    'Bulu rice (Javanica)',
+    'African rice') 
+
+rice_params <- rice_list %>%
+  set_names(rice_list) %>%
+  map(~Recocrop::ecocropPars(.x)$parameters) %>%
+  map(as_tibble) %>%
+  map(~mutate(.x, threshold = thresh, .before = 1)) %>%
+  list_rbind(names_to = 'type') %>%
+  dplyr::select(type, threshold, tavg) %>%
+  pivot_wider(names_from = 'threshold', 
+              values_from = 'tavg')
+
+get_ecocrop <- function(x, tmin, tavg, prec) {
+  rice <- Recocrop::ecocropPars(x)
+  m <- Recocrop::ecocrop(rice)
+  Recocrop::control(m, get_max = TRUE)
+  if(str_detect(x, 'paddy')) {
+      return(Recocrop::predict(m, ktmp = tmin, tavg = tavg))
+
+  } else {
+      return(Recocrop::predict(m, ktmp = tmin, tavg = tavg, prec = prec))
+  }
+}
+
+
+tmin <- geodata::worldclim_global('tmin', res = 5, path = here('data/data-raw/wc'))
+tavg <- geodata::worldclim_global('tavg', res = 5, path = here('data/data-raw/wc'))
+prec <- geodata::worldclim_global('prec', res = 5, path = here('data/data-raw/wc'))
+
+suitabilities_rainfed <- map(rice_list, get_ecocrop, tmin, tavg, prec = prec) %>%
+  do.call(c, .) %>%
+  crop(bbox) %>%
+  setNames(rice_list)
+
+plot(suitabilities_rainfed)
+```
+
+```{r}
+
+
+present_suitability <- chelsa[['bio1']]>20 & chelsa[['bio1']] < 30
+future_suitability<- cmip6[['bio1']]>20 & cmip6[['bio1']] < 30
+c(present_suitability, future_suitability) %>%
+  st_as_stars() %>%
+  split() %>%
+  mutate(test = interaction(bio1, bio1.1)) %>%
+  dplyr::select(test) %>%
+  plot
+
+plot(present_suitability == future_suitability)
+bind_cols(as_tibble(chelsa[['bio1']]), as_tibble(cmip6[['bio1']])) %>%
+  mutate(present_suitability)
+ggplot() +
+  
+```
+
+Niche projections
+
+niche stability

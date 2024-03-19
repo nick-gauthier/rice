@@ -1,0 +1,394 @@
+---
+title: "Indica offset"
+output: html_notebook
+---
+
+```{r}
+library(tmap)
+library(tidyverse)
+library(LEA)
+library(vegan)
+library(sf)
+```
+
+```{r}
+indica_env_variables = readRDS("indica_env_variables.rds")
+
+ggplot(indica_env_variables,aes(y = value, 
+                     x = ssp,
+                     color = ssp)) +
+  geom_point() +
+  facet_grid(~name) +
+  xlab(NULL) +
+  theme(axis.text.x = element_blank())
+```
+Looking at geographical distribution of geotagged indica accessions
+
+```{r}
+
+inds_geotagged = readRDS("indica_geotagged.rds")
+
+data(World)
+asia = World %>% dplyr::filter(continent == "Asia")
+
+ggplot(asia) +
+  geom_sf() +
+  geom_point(inds_geotagged,mapping = aes(x = LON,y = LAT))
+
+```
+I am working with the dataset from the Gutaker et al. 2020 study.
+
+The dataset has been filtered to retain biallelic SNPs with genotyping rate > 0.8, at HWE for F = 0.96, and then imputed at missing genotypes.
+
+For population structure analysis, used a linkage-pruned set.
+
+Plotting eigenvalues of prcomp run on genotype matrix (don't run)
+
+
+```{r}
+#ind_pca = readRDS("ind_prcomp.rds")
+
+plot(ind_pca, col = "blue")
+```
+This was used to run admixture analysis for indica genotypes. Don't run.
+
+```{r}
+ind_project = NULL
+ind_project = snmf("INDICA/indica_10kb_50_filtered_maf0.05.geno",
+K = 4:11,
+entropy = TRUE,
+repetitions = 10,
+project = "new")
+```
+
+Cross-entropy across different values of K
+
+```{r}
+ind_project = readRDS("indica_structure.rds")
+
+plot(ind_project, col = "blue", pch = 19, cex = 1.2)
+```
+
+It looks a little messier than japonica, but going with K = 7 based partly on the Gutaker paper
+
+```{r}
+
+K = 7
+
+ind_best = which.min(cross.entropy(ind_project, K = K))
+
+ind_admix = as.data.frame(Q(ind_project , K = K, run = ind_best))
+ind_admix$ID = inds_geotagged$ID
+
+ind_admix = left_join(ind_admix,inds_geotagged) 
+
+ind_admix = ind_admix %>% dplyr::arrange(INDK7)
+
+ind_admix_long = tidyr::pivot_longer(ind_admix,cols=1:7)
+ind_admix_long = ind_admix_long %>% rowwise() %>%
+  dplyr::mutate(ord_ID = paste0(ID,"_",name))
+
+
+ggplot(ind_admix_long,aes(x=factor(ID),y = value,color = factor(name))) +
+  geom_col() +
+  facet_grid(~INDK7,space = "free",scales = "free") +
+  theme(axis.text.x = element_blank())
+
+```
+
+Before we run the actual GEA, looking at the correlatedness between the three environmental variables:
+
+
+```{r}
+
+indica_env_list = readRDS("indica_env_list.rds")
+
+cor(indica_env_list[["present"]][,4:6])
+
+```
+
+Performing PCA
+
+```{r}
+indica_pred.pca <- vegan::rda(indica_env_list[["present"]][,4:6], scale=T)
+
+summary(indica_pred.pca)$cont
+```
+```{r}
+screeplot(indica_pred.pca, main = "Screeplot: Eigenvalues of Predictor Variables")
+
+```
+
+PC1 seems largely explanatory, using that as the environmental variable for GEA
+
+```{r}
+indica_env.pc1 = vegan::scores(indica_pred.pca, choices=1, display="sites", scaling=0)
+#saveRDS(env.pc1,"env.PC1.rds")
+```
+
+Looking at correlation between PC1 and the environmental variables
+
+```{r}
+cor(data.frame(indica_env_list[["present"]][,4:6],PC1 = indica_env.pc1))
+```
+```{r}
+#ind_lf_matrix = data.table::fread("indica_filtered_maf0.05.lfmm")
+
+#ind_lf_PC_K7 = lfmm2(input = ind_lf_matrix, env = ind_env.pc1,
+ #     K = 7)
+#ind_p_PC_K7 = lfmm2.test(ind_lf_PC_K7,ind_lf_matrix,ind_env.pc1)
+
+```
+
+Looking at distribution of p-values
+
+```{r}
+
+ind_p_PC_K7 = readRDS("ind_p_PC1_K7.rds")
+
+hist(ind_p_PC_K7$pvalues)
+
+```
+qqplot is a bit inflated, but does imply presence of outliers:
+
+```{r}
+
+qqplot(rexp(length(ind_p_PC_K7$pvalues), rate = log(10)),
+       -log10(ind_p_PC_K7$pvalues), xlab = "Expected quantile",
+       pch = 19, cex = .4)
+abline(0,1)
+```
+
+
+
+Importing SNP positions:
+
+```{r}
+indica_snp_table = read.table("indica_filtered_maf0.05.map")
+
+indica_snp_table$p = ind_p_PC_K7$pvalues
+
+indica_snp_table$index = 1:length(indica_snp_table$p)
+```
+
+Correcting for false-positives and making a Manhattan plot
+
+```{r}
+
+ind_fdr_K7 = p.adjust(ind_p_PC_K7$pvalues,"BY",length(ind_p_PC_K7$pvalues))
+
+sum(ind_fdr_K7 < 0.1)
+
+indica_snp_table$fp = ind_fdr_K7 
+
+indica_snp_table = indica_snp_table %>% dplyr::mutate(sig = case_when(fp < 0.1 ~ "sig.",
+                                            fp >= 0.1 ~ "non-sig."
+))
+
+
+ggplot(indica_snp_table,aes(x = index, y = -log10(p),color=sig)) +
+  geom_point()
+
+
+```
+
+
+A lot of the SNPs are clearly linked. Picking the most significant SNPs from every contiguous series of SNPs (within 100kb) and making another Manhattan plot:
+
+
+```{r}
+
+ind_snps_K7 = indica_snp_table %>% dplyr::filter(fp < 0.1)
+
+ind_chain = rep(1,length(ind_snps_K7$V4))
+
+for (i in 2:length(ind_snps_K7$V4)){
+  if (ind_snps_K7$V1[i] != ind_snps_K7$V1[i-1] | 
+      ind_snps_K7$V4[i] - ind_snps_K7$V4[i-1] > 100000){
+    ind_chain[i:length(ind_chain)] = ind_chain[i] + 1
+  }
+}
+
+ind_snps_K7$chain = ind_chain
+
+ind_snps_K7_loci = ind_snps_K7 %>% dplyr::group_by(chain) %>%
+  dplyr::filter(p == min(p)) %>%
+  dplyr::filter(V4 == min(V4))
+
+
+
+#Show these loci on Manhattan plot:
+
+ggplot(indica_snp_table,aes(x = index, y = -log10(p))) +
+geom_point(color = "grey") +
+geom_point(data = ind_snps_K7_loci, mapping = 
+             aes(x = index, y = -log10(p)),color = "blue")
+
+
+```
+Genetic offset was calculated using the following code (don't run)
+
+```{r}
+
+ind_offset_2.6 = genetic.gap(input = ind_lf_matrix,
+            env = indica_env_list[["present"]][,4:6],
+            pred.env = indica_env_list[["SSP1-2.6"]][,4:6],
+            candidate.loci = ind_snps_K7_loci$index,
+            K = 7
+            )
+
+ind_offset_7.0 = genetic.gap(input = ind_lf_matrix,
+            env = indica_env_list[["present"]][,4:6],
+            pred.env = indica_env_list[["SSP3-7.0"]][,4:6],
+            candidate.loci = ind_snps_K7_loci$index,
+            K = 7
+            )
+
+ind_offset_8.5 = genetic.gap(input = ind_lf_matrix,
+            env = indica_env_list[["present"]][,4:6],
+            pred.env = indica_env_list[["SSP5-8.5"]][,4:6],
+            candidate.loci = ind_snps_K7_loci$index,
+            K = 7
+            )
+
+
+ind_offset_past = genetic.gap(input = ind_lf_matrix,
+            env = indica_env_list[["present"]][,4:6],
+            pred.env = indica_env_list[["past"]][,4:6],
+            candidate.loci = ind_snps_K7_loci$index,
+            K = 7
+            )
+```
+
+Importing these objects:
+
+```{r}
+ind_offset_2.6 = readRDS("ind_offset_2.6.rds")
+ind_offset_7.0 = readRDS("ind_offset_7.0.rds")
+ind_offset_8.5 = readRDS("ind_offset_8.5.rds")
+ind_offset_past = readRDS("ind_offset_past.rds")
+
+```
+
+```{r}
+
+inds = read.table("inds_order.txt")
+
+inds_offset = data.frame(inds$V1,
+                  ind_offset_2.6$offset,ind_offset_2.6$distance,
+                  ind_offset_7.0$offset,ind_offset_7.0$distance,
+                  ind_offset_8.5$offset,ind_offset_8.5$distance,
+                  ind_offset_past$offset,ind_offset_past$distance)
+
+
+colnames(inds_offset) = c("ID",
+                   "offset_2.6","rona_2.6",
+                   "offset_7.0","rona_7.0",
+                   "offset_8.5","rona_8.5",
+                   "offset_past","rona_past"
+                   )
+
+
+
+inds_offset = dplyr::left_join(inds_offset,inds_geotagged)
+```
+Looking at the maximum offset value for plotting range
+
+```{r}
+max(inds_offset$offset_2.6,
+    inds_offset$offset_7.0,
+    inds_offset$offset_8.5,
+    inds_offset$offset_past)
+```
+
+```{r}
+ind_plot_off_2.6 = ggplot(asia) +
+  geom_sf() +
+  geom_point(data = inds_offset, 
+             mapping = aes(x = LON,y = LAT, color = offset_2.6)) +
+            scale_colour_gradientn( colors = c("lightblue1","darkblue"),limits=c(0,0.1)) +
+   theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        axis.ticks = element_blank()) +
+  ggtitle("Model 2.6")
+  
+```
+
+```{r}
+ind_plot_off_7.0 = ggplot(asia) +
+  geom_sf() +
+  geom_point(data = inds_offset, 
+             mapping = aes(x = LON,y = LAT, color = offset_7.0)) +
+            scale_colour_gradientn( colors = c("lightblue1","darkblue"),limits=c(0,0.1)) +
+   theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        axis.ticks = element_blank()) +
+  ggtitle("Model 7.0")
+  
+```
+
+
+```{r}
+
+ind_plot_off_8.5 = ggplot(asia) +
+  geom_sf() +
+  geom_point(data = inds_offset, 
+             mapping = aes(x = LON,y = LAT, color = offset_8.5)) +
+   scale_colour_gradientn( colors = c("lightblue1","darkblue"),limits=c(0,0.1)) +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        axis.ticks = element_blank()) +
+  ggtitle("Model 8.5")
+```
+
+
+```{r}
+ind_plot_off_past = ggplot(asia) +
+  geom_sf() +
+  geom_point(data = inds_offset, 
+             mapping = aes(x = LON,y = LAT, color = offset_past)) +
+            scale_colour_gradientn( colors = c("lightblue1","darkblue"),limits=c(0,0.1)) +
+   theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        axis.ticks = element_blank()) +
+  ggtitle("Past")
+  
+```
+
+
+```{r}
+
+ind_plot_with_legend = ggplot(asia) +
+  geom_sf() +
+  geom_point(data = inds_offset, 
+             mapping = aes(x = LON,y = LAT, color = offset_8.5)) +
+   scale_colour_gradientn( "Offset",colors = c("lightblue1","darkblue"),limits=c(0,0.1)) +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks = element_blank()) +
+  ggtitle("Model 8.5")
+
+ind_legend <- cowplot::get_legend(
+  ind_plot_with_legend +  
+      theme(legend.position = "bottom") 
+)
+```
+
+
+```{r}
+ind_prow = cowplot::plot_grid(ind_plot_off_2.6,ind_plot_off_7.0,
+                          ind_plot_off_8.5,ind_plot_off_past)
+
+cowplot::plot_grid(ind_prow,ind_legend,ncol = 1,rel_heights = c(7,1))
+```
+
+

@@ -230,6 +230,13 @@ ggplot(dat_cl2) +
 
 ```{r}
 saveRDS(dat_cl2, 'data/data-derived/oryza_clean.rds')
+
+rice <- readRDS( 'data/data-derived/oryza_clean.rds')
+
+ggplot() +
+  geom_sf(data = rice, aes(color = species)) +
+  facet_wrap(~species) +
+  geom_sf(data = coasts)
 ```
 
 ```{r, cache = TRUE}
@@ -250,7 +257,9 @@ ggplot() +
   theme_minimal()
 ```
 
-    bio15          bio2           bio3           npp            pet_penman_min rsds_min       rsds_range  
+```         
+bio15          bio2           bio3           npp            pet_penman_min rsds_min       rsds_range  
+```
 
 ```{r}
 small_fit %>%
@@ -1095,10 +1104,10 @@ Use Bayesian additive regression trees for more interpretable niche modeling.
 #install.packages('reshape')
 library(embarcadero)
 
-xvars <- names(dat)[!(names(dat) == 'rice')]
+xvars <- names(train)[!(names(train) == 'presence')]
 ## Run the BART model
-sdm <- bart(y.train = as.numeric(dat$rice)-1,
- x.train=dat[,xvars], 
+sdm <- bart(y.train = as.numeric(as.character(train$presence)),
+ x.train=train[,xvars], 
  keeptrees = TRUE)
 
 summary(sdm)
@@ -1109,14 +1118,16 @@ summary(sdm)
 
 ```{r}
 ## Predict the species distribution
-map <- predict(sdm, as(merge(chelsa), 'RasterStack'))
+map <- predict(sdm, as(chelsa, 'Raster'))
 ```
 
 ```{r cache = TRUE}
-sdm_step <- bart.step(x.data = dat[,xvars], 
-                      y.data = as.numeric(dat$rice) - 1,
-                      full = TRUE)
+sdm_step <- bart.step(x.data = train[,xvars], 
+                      y.data = as.numeric(as.character(train$presence)),
+                      full = FALSE)
 ```
+
+bio10 bio11 bio12 bio15 bio2 bio8
 
 BIO1 = Annual Mean Temperature
 
@@ -1129,14 +1140,14 @@ BIO2 = Mean Diurnal Range (Mean of monthly (max temp - min temp))
 BIO3 = Isothermality (BIO2/BIO7) (×100)
 
 ```{r fig.width = 10, fig.height=10}
-sdm_simp <- bart(y.train = as.numeric(dat$rufip)-1, # or rice!
- x.train=dat[,c('bio1',  'bio12', 'bio15', 'bio2', 'bio3')], 
+sdm_simp <- bart(y.train = as.numeric(as.character(train$presence)), 
+ x.train=train[,c('bio10',  'bio11')], 
  keeptrees = TRUE)
 
 partial(sdm_simp, 
-        x.vars = c('bio1',  'bio12', 'bio15', 'bio2', 'bio3'),
+        x.vars = c('bio10',  'bio11'),
     ci = TRUE,
-    panel = TRUE,
+    panels = TRUE,
     smooth = 3)
 ```
 

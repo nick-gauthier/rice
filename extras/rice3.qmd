@@ -1,0 +1,432 @@
+---
+title: "Modeling the past and future climatic niche of rice"
+author: "Nick Gauthier"
+date: "`r Sys.Date()`"
+format:
+  html:
+    theme: sandstone
+editor: visual
+knitr: 
+  opts_chunk:
+    echo: FALSE
+bibliography: references.bib
+---
+
+```{r setup, message = TRUE, warning = TRUE}
+# analysis packages
+library(stars) # spatio-temporal raster processing
+library(tidyverse) # data manipulation and plotting
+library(tidymodels) # machine learning
+# library(geodata) # geographic data
+library(here) # cross-platform directory structures
+library(readxl) # read excel spreadsheets
+library(exactextractr)
+# library(dismo) # generating background points for niche model, not loaded but should be installed
+#library(themis)
+#library(colino)
+library(Recocrop)
+
+# parallel processing
+library(doMC)
+available_cores <- parallel::detectCores(logical = TRUE)
+
+# visualization packages
+library(rnaturalearth) # country boundaries
+library(vip) # variable importance plots
+
+sf_use_s2(FALSE)
+
+# define the study area
+asia_bbox <- st_bbox(c(xmin = 60, xmax = 150, ymin = -20, ymax = 50), crs = 4326)
+world_bbox <- st_bbox(c(xmin = -130, xmax = 155, ymin = -55, ymax = 60), crs = 4326)
+
+# get country boundaries shapefile for plotting
+countries <- ne_countries(returnclass = "sf", scale = 'large') %>%
+  st_crop(world_bbox)
+coasts <- ne_coastline(returnclass = 'sf') %>%
+  st_crop(world_bbox)
+
+theme_set(theme_bw())
+```
+
+# Introduction
+
+Question: What is the fundamental thermal niche of rice? How has rice's niche changed in the past and how is it likely to change in the future? How sensitive is rice to changes in its thermal niche?
+
+Hypotheses: Rice's fundamental thermal niche reflects both lower and upper bounds on temperature. Earlier in the Holocene temperatures were warmer, so rice was able to be grown further north. But although rice has adapted to increased cold it has not adapted to increased heat. Projected increases in heat will reduce the global rice niche without increasing it elsewhere.
+
+# Data
+
+## Rice occurrence data
+
+### Contemporary rice data
+
+We used geolocated occurrence records for rice's wild progenitor (Oryza rufipogon G.) from GBIF/CHV via [here](https://www.sciencedirect.com/science/article/pii/S1574954122002631) . Also load occurrence records of domestic rice from the same source.
+
+```{r warning = FALSE}
+occ <- here('data/data-raw/Datasets of occurrence records of rice and its wild progenitor.xlsx')
+progenitor <- read_excel(occ, skip = 6715) %>%
+  select(-x, -`the wild progenitor`) %>%
+  st_as_sf(coords = 2:1, crs = 4326) %>%
+  st_crop(world_bbox) %>%
+  mutate(rice = 'present')
+
+
+domestic <- read_excel(occ, n_max = 6714) %>%
+  remove_missing() %>%
+  select(-x, -Rice) %>%
+  st_as_sf(coords = 2:1, crs = 4326) %>%
+   st_crop(world_bbox) %>%
+  mutate(rice = 'present')
+
+plot(progenitor)
+plot(domestic)
+```
+
+### Archaeological rice data
+
+We used rice occurrence data from archaeological sites using version 2 of the Rice Archaeological Database \@[@silva2015]. The data span the period from xxx to yyy. A total of zzz sites are included in the database, mainly from eastern China, Japan, Korea, and southeast Asia. These are generally records of botanical remains thought to be *O. sativa japonica* from archaeological sites. Some of these occurrence were likely wild-type *O. rufipogon* instead based on their timing. We removed one such extremely early occurrence from xxx as a likely outlier.
+
+Also cleaned data from [@gutaker2020]
+
+```{r arch-rice-data}
+arch <- here('data/data-raw/Archaeological Rice Dataset.xlsx') %>%
+  read_excel() %>%
+  st_as_sf(coords = c('Longitude', 'Latitude'), crs = 4326) %>%
+  rename(age = `Est._Date_Median_BC`) %>%
+  mutate(age = age - 1950) %>%
+  st_crop(world_bbox) %>%
+  arrange(-age) %>%
+  filter(age > -10000)
+```
+
+## Climate data
+
+### Observations
+
+We used high-resolution gridded climate data from CHELSA V2 [@brun2022]. CHELSA is a quasi-mechanistic topo-climatic downscaling algorithm. It uses raw outputs from the ERA-5 reanalysis with additional bias correction by GPCC and xxx.CHELSA performs much better than other global gridded climate products like WorldClim or TerraClim, particularly in mountainous areas, and its use of high quality reanalysis data rather than unprocessed weather station data ensures further accuracy and internal consistency between the variables.
+
+The monthly mean climatologies for precipitation and minimum and maximum temperature were post processed into the standard 19 bioclimatic variables, with additional variables relating to factors like soil moisture, growing season length, and humidity. These data span the period 1980-2010 at a 1km resolution. We aggregated the 1km data to 10km resolution to better sample the landscape-scale climate patterns and to ameliorate the false precision of using 1km climate data with uncertain occurrence geolocations.
+
+```{r load-chelsa, cache = TRUE}
+chelsa_files <- list.files('../../CHELSA_V2_bio_clim', 
+                           full.names = TRUE)[c(1:20, 40:59)]
+
+chelsa_names <- chelsa_files %>% 
+  str_split('_') %>% 
+  map(~.x[5:7]) %>%
+  map(~if_else(.x %in% c("1981-2010", "V.2.1.tif"), NA, .x)) %>%
+  map_chr(str_flatten, collapse = '_', na.rm = TRUE)
+
+chelsa <- terra::rast(chelsa_files) %>%
+  aggregate(fact = 10, cores = 10, na.rm = TRUE)
+
+writeCDF(chelsa, here('data/data-derived/chelsa_10km.nc'), overwrite = TRUE)
+```
+
+### Paleoclimate reconstructions
+
+Including the global temperature reconstruction of [@10.5194/cp-18-2599-2022;\@10.5281/zenodo.6426332].
+
+```{r erb, fig.width = 6, fig.height = 5, cache = TRUE}
+erb_rotated <- read_ncdf(here('data/data-raw/holocene_reconstruction.nc'), 
+                              var = 'recon_tas_mean') %>%
+                           st_set_crs(4326)
+                         
+times <- st_get_dimension_values(erb_rotated, 'ages')
+
+floor_mil   = function(value){ return(value - value %% 1000) }
+floor_cen   = function(value){ return(value - value %% 100) }
+
+centuries <- floor_cen(1949.5 - times)
+mil <- floor_mil(1949.5 - times)
+hist(mil)
+erb <- erb_rotated %>%  
+  as('SpatRaster') %>%
+  rotate() %>%
+  tapp(mil, fun = mean) %>%
+  st_as_stars(crs = 4326) %>%
+  st_set_dimensions('band', names = 'time', 
+                    values = unique(mil) / 1000 - 1) %>%
+  setNames('tas') %>%
+  st_crop(asia_bbox) %>%
+  mutate(tas = units::set_units(tas, degree_c)) %>%
+  filter(time >= -8)
+
+erb_decadal <- erb_rotated %>%  
+  as('SpatRaster') %>%
+  rotate() %>%
+  st_as_stars(crs = 4326) %>%
+  st_set_dimensions('band', names = 'time', 
+                    values = -1 * (times + 0.5)) %>%
+  setNames('tas') %>%
+ st_crop(asia_bbox) %>%
+  mutate(tas = units::set_units(tas, degree_c))
+
+ggplot() +
+  geom_stars(data = (erb[,,,-c(1:2,9)] - slice(erb, 'time', 1)) %>% st_crop(countries %>% st_crop(asia_bbox))) +
+  facet_wrap(~time) +
+  #scale_fill_viridis_c(option = 'magma') +
+  scale_fill_distiller(palette = 'RdBu', na.value = 'white') +
+  geom_sf(data = st_crop(coasts, asia_bbox))
+#rm(erb_rotated, times)
+```
+
+Others? PMIP3/TRACE/CHELSA-TRACE
+
+### Future climate projections
+
+We also aquired downscaled projections of future climate from the CMIP6 archive, also downscaled using the CHELSA algorithm [@brun2022].
+
+# Methods
+
+All analyses carried out in `R` [@base]. The entire analysis is run in a reproducible \`.qmd\` notebook.
+
+## Ecological niche modeling
+
+### Preprocessing
+
+All spatial data manipulation was carried out using the `sf`, `stars`, and `terra` packages [@terra; @stars; @sf].
+
+We thinned the occurrence data to minimize influences from sampling biases. We select one sample per 10km grid in the predictor data [@dismo]. Because we do not have true absence data for past and present rice occurrences, we generated 50,000 latitude-weighted random background points on land surfaces. This allows us to estimate the relative suitability for the given crop with respect to the global climatic baseline.
+
+```{r background-sample, cache = TRUE}
+chelsa <- rast(here('data/data-derived/chelsa_10km.nc')) %>%
+    setNames(chelsa_names)
+set.seed(1234567)
+samp <- dismo::gridSample(st_coordinates(progenitor), chelsa) %>%
+   as_tibble() %>%
+  st_as_sf(coords = c('X', 'Y'), crs = 4326) %>% 
+  mutate(presence = TRUE)
+
+nrow(progenitor);nrow(samp)
+
+bbox <- raster::extent(-130, 155, -55, 60) 
+
+bg <- dismo::randomPoints(as(chelsa[['pet_penman_mean']], 'Raster'), 50000, 
+                          st_coordinates(samp), bbox) %>%
+  as_tibble() %>%
+  st_as_sf(coords = c('x', 'y'), crs = 4326) %>% 
+  mutate(presence = FALSE)
+  
+dat_pts <- bind_rows(samp, bg)
+
+dat <- bind_cols(dat_pts,
+          terra::extract(chelsa, dat_pts, ID = FALSE)) %>%
+  st_drop_geometry()# %>%
+  #remove_missing()
+saveRDS(dat, here('data/data-derived/rufip_dat.rds'))
+ggplot(dat_pts) +
+  geom_sf(data = countries, color = NA) +
+  geom_sf(size = 0.1, aes(color = presence)) +
+  scale_color_manual(values = c('black', 'red')) +
+  theme_minimal()
+
+dat %>% filter(if_any(everything(), is.na) & presence == TRUE)
+```
+
+We randomly divided the occurrence data into a train test split, and further subdivided the training data into 5 folds, repeated 5 times, for cross validation. The train-test and 5-fold splits were both stratified by the presence-background outcome variable, so that the proportion of presence to background points was the same throughout. This ensures the models do not overfit to the high-prevalence background points.
+
+```{r}
+dat <- readRDS(here('data/data-derived/rufip_dat.rds'))
+set.seed(12345)
+# is stratification actually happening here? the diff is more than 10%
+splits <- initial_split(dat, strata = presence)
+train <- training(splits)
+folds <- vfold_cv(train, v = 5, repeats = 5, strata = presence)
+```
+
+### Variable selection
+
+We compared multiple models, including:
+
+1.  All 19 Bioclimate variables
+2.  Basic variables that can reasonably be reconstructed in the past: MAT, mean temperature of the warmest month, mean temperature of the coldest month, total annual precipitation, (growing degree days, PET, aridity index?)
+3.  Additional moisture and terrain variables like PET, humidity, and solar radiation (soil PH)
+4.  Stepwise model selection through BART
+
+We evaluated our model based on several skill scores, the J, F index
+
+```{r}
+# error here effecting the rest?
+c_metrics <- metric_set(f_meas, roc_auc, pr_auc, j_index, sens, spec, kap, precision)
+```
+
+### Random forests
+
+We fit machine learning models using random forests, an ensemble-based machine learning method that makes predictions from an ensemble of several decisions trees. Random Forests have a high performance and low requirement for tunable parameters. Indeed, preliminary attempts to tune the number of variables selected per node (m_try) and minimum samples per node showed the default values for regression were performant so we elected to use the default values for simplicity.
+
+Used the `tidymodels` framework for R, includeing the packages `parsnip`, `recipes`, `rsample`, and `yardstick` [@parsnip; @dials; @rsample; @recipes]. The underlying random forest algorithm relied on the implementation in the [@ranger] package.
+
+We used balanced random forests to account for the low prevalence of the occurrence data relative to the environmental background points. Balanced random forests pull equal-sized samples of each category for the creation of each tree in the ensemble. This helps the model learn to readily learn to detect the rare class, without throwing out potential information about the environmental background as would be required if the entire RF was fit on a single downsample. We grew the random forests by subsampling \~62% of the data without replacement.
+
+```{r}
+classes <- table(train$presence)
+prevalence <- classes[2]/classes[1]
+prevalence
+```
+
+```{r}
+all_rec <- train %>%
+  recipe(presence ~ .) %>%
+  step_mutate_at(all_predictors(), fn = ~replace_na(., 0)) %>%
+  step_bin2factor(all_outcomes()) %>%
+  step_rm(npp)
+
+bioclim_rec <- train %>%
+  recipe() %>%
+  update_role(starts_with('bio'), new_role = 'predictor') %>%
+  update_role(presence, new_role = 'outcome') %>%
+  step_bin2factor(all_outcomes()) %>%
+  step_rm(!has_role(c('predictor', 'outcome')))
+
+expert_res <- train %>%
+  recipe(presence ~ bio1 + bio12 + bio5 + bio6) %>%
+  step_bin2factor(all_outcomes()) %>%
+  step_rm(!has_role(c('predictor', 'outcome')))
+
+rf_mod <- rand_forest(mode = 'classification',
+                         trees = 1000,
+                         mtry = 5) %>%
+  set_engine('ranger',
+             replace = FALSE,
+             sample.fraction = c(0.632 * prevalence, 
+                                 0.632 * prevalence))
+
+#params <- rf_mod %>%
+#  extract_parameter_set_dials() %>%
+#  update(mtry = mtry(c(1, 6)))
+rec_list <- list(all = all_rec, bio = bioclim_rec, expert = expert_res)
+wflws <- workflow_set(rec_list, list(rf = rf_mod))
+
+registerDoMC(cores = available_cores)
+#tuning_rec <- workflow_map(wflws, 'tune_bayes', resamples = folds, metrics = c_metrics, param_info = params)
+wflw_fits <- workflow_map(wflws, 'fit_resamples', resamples = folds, metrics = c_metrics, verbose = TRUE)
+registerDoSEQ()
+```
+
+```{r}
+autoplot(wflws)
+prep(expert_res) %>% juice
+
+registerDoMC(cores = available_cores)
+
+t1 <- workflow(all_rec, rf_mod) %>%
+  fit_resamples(folds, metrics = c_metrics)
+registerDoSEQ()
+
+t1 %>% collect_metrics()
+```
+
+### Bayesian additive regression trees
+
+As a complement to traditional random forests, we also employ a Bayesian implementation of tree-based ensemble machine learning methods. Bayesian additive regression trees (BART) allow for flexible modeling through regularization. Flexible benefits of other boosting methods but without the need to tune several hyperparameters. It also works favorably for stepwise model selection, as the Bayesian implementation makes assessing variable importance straightforward.
+
+performance improvement.
+
+model selection and fitting
+
+we compared several model configurations in our cross validation scheme
+
+Permutation based variable importance
+
+we used partial dependence plots
+
+assessed area of applicability using [@applicable].
+
+### 
+
+### ECOCROP
+
+As a simple baseline for our niche models we also used the semi-mechanistic expert-informed estimates from the ECOCROP model.
+
+```{r ecocrop}
+thresh <- factor(c('min', 'low_opt', 'high_opt', 'max'),
+       levels = c('min', 'low_opt', 'high_opt', 'max'))
+
+rice_list <- list('Rice paddy (Japonica)',
+     'Rice upland (Japonica)',
+     'Rice, paddy (Indica)',
+    'Rice upland (Indica)',
+    'Bulu rice (Javanica)',
+    'African rice') 
+
+rice_list %>%
+  set_names(rice_list) %>%
+  map(~ecocropPars(.x)$parameters) %>%
+  map(as_tibble) %>%
+  map(~mutate(.x, threshold = thresh, .before = 1)) %>%
+  list_rbind(names_to = 'type') %>%
+  select(type, threshold, tavg) %>%
+  pivot_wider(names_from = 'threshold', 
+              values_from = 'tavg')
+```
+
+Niche projections
+
+niche stability
+
+# Results
+
+## Climate influences on rice niche
+
+## Changing rice niches in the Holocene
+
+```{r}
+# it wants time to be positively increasing?
+arch %>%
+    filter(age > -7000) %>%
+  select(age) %>%
+  mutate(time = age * -1) %>%
+  st_extract(st_set_dimensions(erb_decadal, 'time', values = times * -1), ., time_column = 'time', interpolate_time = TRUE) %>%
+  ggplot(aes(time, tas)) +
+  geom_point()
+  
+  library(tidyEOF)
+plot_scree(erb_decadal %>% filter(time >= -7000), scale = TRUE)
+pat <- get_patterns(erb_decadal %>% filter(time >= -7000), 
+                    k = 2, scale = FALSE, rotate = TRUE)
+plot_eofs(pat) +
+  geom_sf(data = coasts %>% st_crop(asia_bbox))
+plot_amps(pat, scaled = FALSE, c(-4200)) +
+  scale_x_reverse()
+```
+
+Now get correlation between each pattern and SST and MAT reconstructions globally.
+
+Now plot the climate reconstruction and niche data for 9k to present
+
+```{r}
+arch %>%
+  mutate(time = (age - age %% 1000) /1000 + 1) %>%
+  ggplot() +
+  geom_stars(data = erb) +
+  scale_fill_distiller(palette = 'RdBu') +
+  geom_sf(size = 0.5) + 
+  geom_sf(data = coasts %>% st_crop(asia_bbox)) +
+  facet_wrap(~time)
+```
+
+## Project changes in rice suitability
+
+# Discussion
+
+Climate/genetic correlations from [@gutaker2020] match these more or less.
+
+accumulated heat days (GDD) is a common measure for rice's thermal niche [@dalpoimguedes2016]. We consistently find GDD is not a good predictor of rice presences at this spatial and temporal scale. At this scale GDD is highly correlated with annual and seasonal temperature changes, while at the local scale its realized gdd also reflects things like local topography, solar radiation, and the particular timing of its planting and growing season initiation. We conclude, that at regional spatial scales, temperature is a better indicator of rice's thermal niche. It is an easier variable to calculate (and indeed GDD estimates are often themselves inferred from temperature cycles) in the past and future and is less dependent on particular cultural practices. Future work should work to connect these regional correlative models with local mechanistic ones, incorporating local terrain information and cultivar and cultural information about the timing and initiation of planting and the growing period.
+
+## Limitations
+
+spatial and temporal correspondence
+
+rice occurrence data
+
+modeling issues presence-background
+
+genetic variability
+
+unceratiny in radioarbon
+
+## Future work
+
+# References

@@ -1,0 +1,417 @@
+---
+title: "Japonica offset"
+output: html_notebook
+---
+
+```{r}
+library(tmap)
+library(tidyverse)
+library(LEA)
+library(vegan)
+library(sf)
+```
+
+
+Plotting environmental variables
+
+```{r}
+
+env_variables = readRDS("env_variables.rds")
+
+ggplot(env_variables,aes(y = value, 
+                     x = ssp,
+                     color = ssp)) +
+  geom_point() +
+  facet_grid(~name) +
+  xlab(NULL) +
+  theme(axis.text.x = element_blank())
+
+```
+
+Looking at geographical distribution of geotagged japonica accessions
+
+```{r}
+
+
+japs_geotagged = readRDS("japonica_geotagged.rds")
+
+data(World)
+asia = World %>% dplyr::filter(continent == "Asia")
+
+ggplot(asia) +
+  geom_sf() +
+  geom_point(japs_geotagged,mapping = aes(x = LON,y = LAT))
+
+```
+
+I am working with the dataset from the Taiwan study (Alam et al. 2021).
+
+The dataset has been filtered to retain biallelic SNPs with genotyping rate > 0.8, at HWE for F = 0.96, and then imputed at missing genotypes.
+
+For population structure analysis, used a linkage-pruned set.
+
+Plotting eigenvalues of prcomp run on genotype matrix (don't run)
+
+```{r}
+
+#jap_pca = readRDS("jap_prcomp.rds")
+
+plot(jap_pca, col = "blue")
+```
+Ran population structure analysis using the following code:
+
+```{r}
+project = NULL
+project = snmf("japonica_10kb_50_filtered_maf0.05.geno",
+K = 4:11,
+entropy = TRUE,
+repetitions = 10,
+project = "new")
+```
+
+Loading the product of this function and plotting cross entropy for each value of K (number of ancestry components). People often pick the K with the lowest cross-entropy, but we see a kind of asymptote.
+
+```{r}
+
+project = readRDS("jap_structure.rds")
+
+plot(project, col = "blue", pch = 19, cex = 1.2)
+
+```
+K = 8 recaptures the population structure inferred in Gutaker et al. 2020 and Alam et al. 2021. Don't run this.
+
+```{r}
+
+K = 8
+
+best = which.min(cross.entropy(project, K = K))
+
+admix = as.data.frame(Q(project , K = K, run = best))
+admix$ID = kept$ID
+
+tai_meta = read.csv("taiwan_metadata.csv")
+tai_meta = tai_meta %>% dplyr::select(ID,K11)
+admix = left_join(admix,tai_meta) 
+
+admix = admix %>% dplyr::arrange(K11)
+
+admix_long = pivot_longer(admix,cols=1:K)
+admix_long = admix_long %>% rowwise() %>%
+  dplyr::mutate(ord_ID = paste0(ID,"_",name))
+
+
+ggplot(admix_long,aes(x=factor(ID),y = value,color = factor(name))) +
+  geom_col() +
+  facet_grid(~K11,space = "free",scales = "free") +
+  theme(axis.text.x = element_blank())
+
+```
+
+Before we run the actual GEA, looking at the correlatedness between the three environmental variables:
+
+
+```{r}
+
+# env_list is the same as env_variables, but is a list of separate dataframes for each condition
+env_list = readRDS("env_list.rds")
+
+cor(env_list[["present"]][,4:6])
+
+```
+
+Performing PCA
+
+```{r}
+pred.pca <- vegan::rda(env_list[["present"]][,4:6], scale=T)
+
+summary(pred.pca)$cont
+```
+```{r}
+screeplot(pred.pca, main = "Screeplot: Eigenvalues of Predictor Variables")
+
+```
+
+PC1 seems largely explanatory, using that as the environmental variable for GEA
+
+```{r}
+env.pc1 = vegan::scores(pred.pca, choices=1, display="sites", scaling=0)
+#saveRDS(env.pc1,"env.PC1.rds")
+```
+
+Looking at correlation between PC1 and the environmental variables
+
+```{r}
+cor(data.frame(env_list[["present"]][,4:6],PC1 = env.pc1))
+```
+
+Ran the following (across different values of K on the HPC)
+
+```{r}
+#lf_matrix = data.table::fread("japonica_filtered_maf0.05.lfmm")
+#lf_PC_K8 = lfmm2(input = lf_matrix, env = env.pc1,
+#      K = 8)
+
+#p_PC_K8 = lfmm2.test(lf_PC_K8,lf_matrix,env.pc1)
+```
+
+Looking at distribution of p-values
+
+```{r}
+
+p_PC_K8 = readRDS("p_PC1_K8.rds")
+
+hist(p_PC_K8$pvalues)
+
+```
+qqplot is a bit inflated, but does imply presence of outliers:
+
+```{r}
+
+qqplot(rexp(length(p_PC_K8$pvalues), rate = log(10)),
+       -log10(p_PC_K8$pvalues), xlab = "Expected quantile",
+       pch = 19, cex = .4)
+abline(0,1)
+```
+(This kind of qqplot is not completely unheard of:
+https://bcm-uga.github.io/pcadapt/articles/pcadapt.html)
+
+
+Importing SNP positions:
+
+```{r}
+snp_table = read.table("japonica_filtered_maf0.05.map")
+
+snp_table$p = p_PC_K8$pvalues
+
+snp_table$index = 1:length(snp_table$p)
+```
+
+
+Correcting for false-positives and making a Manhattan plot
+
+```{r}
+
+fdr_K8 = p.adjust(p_PC_K8$pvalues,"BY",length(p_PC_K8$pvalues))
+
+sum(fdr_K8 < 0.1)
+
+snp_table$fp = fdr_K8 
+
+snp_table = snp_table %>% dplyr::mutate(sig = case_when(fp < 0.1 ~ "sig.",
+                                            fp >= 0.1 ~ "non-sig."
+))
+
+
+ggplot(snp_table,aes(x = index, y = -log10(p),color=sig)) +
+  geom_point()
+```
+
+
+
+This is arguably a generous cutoff, but I think having more candidate loci makes the genetic offset calculation more robust, or at least not driven by one or two loci.
+
+A lot of the SNPs are clearly linked. Picking the most significant SNPs from every contiguous series of SNPs (within 100kb) and making another Manhattan plot:
+
+
+```{r}
+snps_K8 = snp_table %>% dplyr::filter(fp < 0.1)
+
+chain = rep(1,length(snps_K8$V4))
+
+for (i in 2:length(snps_K8$V4)){
+  if (snps_K8$V1[i] != snps_K8$V1[i-1] | 
+      snps_K8$V4[i] - snps_K8$V4[i-1] > 100000){
+    chain[i:length(chain)] = chain[i] + 1
+  }
+}
+
+snps_K8$chain = chain
+
+snps_K8_loci = snps_K8 %>% dplyr::group_by(chain) %>%
+  dplyr::filter(p == min(p)) %>%
+  dplyr::filter(V4 == min(V4))
+
+#Show these loci on Manhattan plot:
+
+ggplot(snp_table,aes(x = index, y = -log10(p))) +
+geom_point(color = "grey") +
+geom_point(data = snps_K8_loci, mapping = 
+             aes(x = index, y = -log10(p)),color = "blue")
+
+
+```
+Calculated genetic offset using the following code on the hpc (don't run):
+
+
+```{r}
+offset_2.6 = genetic.gap(input = lf_matrix,
+            env = env_list[["present"]][,4:6],
+            pred.env = env_list[["SSP1-2.6"]][,4:6],
+            candidate.loci = snps_K8_loci$index,
+            K = 8
+            )
+
+offset_7.0 = genetic.gap(input = lf_matrix,
+            env = env_list[["present"]][,4:6],
+            pred.env = env_list[["SSP3-7.0"]][,4:6],
+            candidate.loci = snps_K8_loci$index,
+            K = 8
+            )
+
+offset_8.5 = genetic.gap(input = lf_matrix,
+            env = env_list[["present"]][,4:6],
+            pred.env = env_list[["SSP5-8.5"]][,4:6],
+            candidate.loci = snps_K8_loci$index,
+            K = 8
+            )
+
+
+offset_past = genetic.gap(input = lf_matrix,
+            env = env_list[["present"]][,4:6],
+            pred.env = env_list[["past"]][,4:6],
+            candidate.loci = snps_K8_loci$index,
+            K = 8
+            )
+
+```
+
+Importing these objects:
+
+```{r}
+offset_2.6 = readRDS("offset_2.6_PC1_K8.rds")
+offset_7.0 = readRDS("offset_7.0_PC1_K8.rds")
+offset_8.5 = readRDS("offset_8.5_PC1_K8.rds")
+offset_past = readRDS("offset_past_PC1_K8.rds")
+```
+
+Pulling the offset statistics into a dataframe with locations of the accessions
+
+
+```{r}
+
+# this is the order of the japonica accessions in my genotype matrix
+japs = read.table("japs_order.txt")
+
+japs_offset = data.frame(japs$V1,
+                  offset_2.6$offset,offset_2.6$distance,
+                  offset_7.0$offset,offset_7.0$distance,
+                  offset_8.5$offset,offset_8.5$distance,
+                  offset_past$offset,offset_past$distance)
+
+
+colnames(japs_offset) = c("ID",
+                   "offset_2.6","rona_2.6",
+                   "offset_7.0","rona_7.0",
+                   "offset_8.5","rona_8.5",
+                   "offset_past","rona_past"
+                   )
+
+
+japs_offset_meta = dplyr::left_join(japs_offset,japs_geotagged)
+```
+
+Looking at the maximum offset value for plotting range
+
+```{r}
+max(japs_offset_meta$offset_2.6,
+    japs_offset_meta$offset_7.0,
+    japs_offset_meta$offset_8.5,
+    japs_offset_meta$offset_past)
+```
+
+
+Making the plots
+
+
+```{r}
+plot_off_2.6 = ggplot(asia) +
+  geom_sf() +
+  geom_point(data = japs_offset_meta, 
+             mapping = aes(x = LON,y = LAT, color = offset_2.6)) +
+            scale_colour_gradientn( colors = c("lightblue1","darkblue"),limits=c(0,0.1)) +
+   theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        axis.ticks = element_blank()) +
+  ggtitle("Model 2.6")
+  
+```
+
+```{r}
+plot_off_7.0 = ggplot(asia) +
+  geom_sf() +
+  geom_point(data = japs_offset_meta, 
+             mapping = aes(x = LON,y = LAT, color = offset_7.0)) +
+            scale_colour_gradientn( colors = c("lightblue1","darkblue"),limits=c(0,0.1)) +
+   theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        axis.ticks = element_blank()) +
+  ggtitle("Model 7.0")
+  
+```
+
+
+```{r}
+
+plot_off_8.5 = ggplot(asia) +
+  geom_sf() +
+  geom_point(data = japs_offset_meta, 
+             mapping = aes(x = LON,y = LAT, color = offset_8.5)) +
+   scale_colour_gradientn( colors = c("lightblue1","darkblue"),limits=c(0,0.1)) +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        axis.ticks = element_blank()) +
+  ggtitle("Model 8.5")
+```
+
+
+```{r}
+plot_off_past = ggplot(asia) +
+  geom_sf() +
+  geom_point(data = japs_offset_meta, 
+             mapping = aes(x = LON,y = LAT, color = offset_past)) +
+            scale_colour_gradientn( colors = c("lightblue1","darkblue"),limits=c(0,0.1)) +
+   theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "none",
+        axis.ticks = element_blank()) +
+  ggtitle("Past")
+  
+```
+
+This is just extracting the legend from one of the plots
+
+```{r}
+
+plot_with_legend = ggplot(asia) +
+  geom_sf() +
+  geom_point(data = japs_offset_meta, 
+             mapping = aes(x = LON,y = LAT, color = offset_8.5)) +
+   scale_colour_gradientn( "Offset",colors = c("lightblue1","darkblue"),limits=c(0,0.1)) +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks = element_blank()) +
+  ggtitle("Model 8.5")
+
+legend <- cowplot::get_legend(
+  plot_with_legend +  
+      theme(legend.position = "bottom") 
+)
+```
+
+Plotting them all together:
+
+```{r}
+prow = cowplot::plot_grid(plot_off_2.6,plot_off_7.0,
+                          plot_off_8.5,plot_off_past)
+
+cowplot::plot_grid(prow,legend,ncol = 1,rel_heights = c(7,1))
+```
+

@@ -1,0 +1,2117 @@
+---
+title: "Modeling the past and future climatic niche of rice"
+author: "Nick Gauthier"
+date: "`r Sys.Date()`"
+format:
+  html:
+    theme: sandstone
+editor: visual
+knitr: 
+  opts_chunk:
+    echo: FALSE
+bibliography: references.bib
+---
+
+```{r setup, message = TRUE, warning = TRUE}
+# analysis packages
+library(stars) # spatio-temporal raster processing
+library(sf)
+library(tidyverse)
+library(tidymodels) # machine learning
+library(terra)
+library(here) # cross-platform directory structures
+library(readxl) # read excel spreadsheets
+# library(dismo) # generating background points for niche model, not loaded but should be installed
+#library(Recocrop)
+  library(tidyEOF)
+
+# parallel processing
+library(doMC)
+available_cores <- parallel::detectCores(logical = TRUE)
+
+# visualization packages
+library(rnaturalearth) # country boundaries
+library(vip) # variable importance plots
+library(pdp) # partial dependence plots
+library(ggridges)
+library(patchwork)
+
+# define the study area
+asia_bbox_sf <- st_bbox(c(xmin = 60, xmax = 150, ymin = -20, ymax = 50), crs = 4326)
+world_bbox_sf <- st_bbox(c(xmin = -130, xmax = 155, ymin = -40, ymax = 60), crs = 4326)
+
+bbox <- terra::ext(60, 150, -20, 50)
+bbox_world <- raster::extent(-130, 155, -40, 60)  # global
+
+# get country boundaries shapefile for plotting
+sf_use_s2(FALSE)
+countries <- ne_countries(returnclass = "sf", scale = 'large') %>% 
+  st_crop(asia_bbox_sf)
+coasts <- ne_coastline(returnclass = 'sf') %>%
+  st_crop(asia_bbox_sf)
+coasts_world <- ne_coastline(returnclass = 'sf') %>% 
+  st_crop(world_bbox_sf)
+countries_world <- ne_countries(returnclass = "sf", scale = 'large') %>% 
+  st_crop(world_bbox_sf)
+sf_use_s2(TRUE)
+
+
+theme_set(theme_bw())
+
+load('data/data-derived/data_prepped.RData')
+
+chelsa_files <- list.files('../../CHELSA_V2_bio_clim', 
+                           full.names = TRUE)[c(1, 2:20, 31:33, 40:46, 48:50, 52:59, 67:70)]
+
+chelsa_names <- chelsa_files %>% 
+  str_split('_') %>% 
+  map(~.x[5:7]) %>%
+  map(~if_else(.x %in% c("1981-2010", "V.2.1.tif"), NA, .x)) %>%
+  map_chr(str_flatten, collapse = '_', na.rm = TRUE)
+
+chelsa <- rast('data/data-derived/chelsa_5km.nc') %>%
+  setNames(chelsa_names)
+
+cmip6_26 <- rast( here('data/data-derived/chelsa_cmip6_26_5km.nc')) %>%
+  setNames(chelsa_names[2:20])
+cmip6_70 <- rast( here('data/data-derived/chelsa_cmip6_70_5km.nc')) %>%
+  setNames(chelsa_names[2:20])
+cmip6_85 <- rast( here('data/data-derived/chelsa_cmip6_85_5km.nc')) %>%
+  setNames(chelsa_names[2:20])
+```
+
+# Introduction
+
+Question: What is the fundamental thermal niche of rice? How has rice's niche changed in the past and how is it likely to change in the future? How sensitive is rice to changes in its thermal niche?
+
+Hypotheses: Rice's fundamental thermal niche reflects both lower and upper bounds on temperature. Earlier in the Holocene temperatures were warmer, so rice was able to be grown further north. But although rice has adapted to increased cold it has not adapted to increased heat. Projected increases in heat will reduce the global rice niche without increasing it elsewhere.
+
+# Results
+
+## Climate influences on rice niche
+
+growing season temperature ultimately has the clearest boundaries. 10 min and 29 max. but if you plot the filled density it looks like their could be three modes, which would be our japonica indica and javanica -- it shows up in the filled plot because now it's accounting for the environmental background better
+
+```{r}
+train %>%
+  mutate(presence = if_else(presence == 1, 'Present', 'Absent')) %>%
+    pivot_longer(ai:vpd_range, names_to = 'var') %>%
+  filter(var %in% c('bio1', 'bio5', 'bio8', 'bio10', 'bio11')) %>%
+ggplot(aes(value)) +
+  geom_density(aes(y = after_stat(count)/sum(after_stat(count)), fill = presence), position = 'stack') +
+  facet_wrap(~var)
+
+dat %>%
+  mutate(presence = if_else(presence == 1, 'Present', 'Absent')) %>%
+    pivot_longer(ai:vpd_range, names_to = 'var') %>%
+  filter(var %in% c('bio1', 'bio5', 'bio8', 'bio10', 'bio11')) %>%
+ggplot(aes(value)) +
+  geom_density(aes(fill = presence), position = 'fill') +
+  facet_wrap(~var)
+```
+
+### Temperature thresholds
+
+empirical quantiles vs kde quantiles? Empirical quantiles give us 9.8 bio1 lower and 27.6 bio1 upper. for bio5 39.6 upper
+
+```{r}
+dat %>%
+  filter(presence == 1) %>%
+  st_drop_geometry() %>%
+  select(-presence)  %>%
+  reframe(bio1 = quantile(bio1, c(0.05, 0.95), type = 8),
+            bio5 = quantile(bio5, c(0.05, 0.95), type = 8),
+           bio10 = quantile(bio10, c(0.05, 0.95), type = 8),
+           bio8 = quantile(bio8, c(0.05, 0.95), type = 8),
+           bio11 = quantile(bio11, c(0.05, 0.95), type = 8),
+            gst = quantile(gst, c(0.05, 0.95)), type = 8)
+
+dat %>%
+  filter(presence == 1) %>%
+  st_drop_geometry() %>%
+  select(-presence)  %>%
+  reframe(bio1 = quantile(bio1, c(0.025, 0.975), type = 8),
+            bio5 = quantile(bio5, c(0.025, 0.975), type = 8),
+           bio10 = quantile(bio10, c(0.025, 0.975), type = 8),
+           bio8 = quantile(bio8, c(0.025, 0.975), type = 8),
+           bio11 = quantile(bio11, c(0.025, 0.975), type = 8),
+            gst = quantile(gst, c(0.025, 0.975)), type = 8)
+
+dat %>%
+  filter(presence == 1) %>%
+  st_drop_geometry() %>%
+  select(-presence)  %>%
+  reframe(bio1 = quantile(bio1, c(0.1, 0.9), type = 8),
+            bio5 = quantile(bio5, c(0.1, 0.9), type = 8),
+           bio10 = quantile(bio10, c(0.1, 0.9), type = 8),
+           bio8 = quantile(bio8, c(0.1, 0.9), type = 8),
+           bio11 = quantile(bio11, c(0.1, 0.9), type = 8),
+            gst = quantile(gst, c(0.1, 0.9)), type = 8)
+```
+
+```{r}
+library(rsample)
+
+get_quants <- function(split, ...) {
+  dat <- analysis(split)
+  quants <- quantile(dat$gst, probs = c(.01, .99), na.rm = TRUE)
+  tibble(
+    term = names(quants),
+    estimate = unname(quants),
+    std.error = c(NA_real_, NA_real_)
+  )
+}
+
+library(furrr)
+plan(multisession)
+boot <- dat %>%
+  filter(presence == 1) %>%
+  st_drop_geometry() %>%
+  select(gst) %>%
+  bootstraps(times = 10000) %>%
+  mutate(test = future_map(splits, get_quants, .progress = TRUE)) 
+
+int_pctl(boot, test)
+boot
+
+
+dat %>%
+  st_drop_geometry() %>%
+    filter(presence == 1) %>%
+  select(gst) %>%
+  bootstraps(times = 1000) %>%
+  mutate(test = purrr::map_dbl(splits, ~rsample::analysis(.x)$gst %>% quantile(0.80))) %>%
+  pull(test) %>%
+  hist
+```
+
+https://stats.stackexchange.com/questions/119748/using-bootstrap-to-obtain-sampling-distribution-of-1st-percentile: \>"Bootstrap inference for the extremes of a distribution is generally dubious."
+
+```{r}
+dat %>%
+  filter(presence == 1) %>%
+  pull(bio1) %>%
+  ecdf %>% plot
+
+library(eks)
+
+t1 <- tidy_kde(filter(dat, presence ==1)$gst)
+ggplot(t1, aes( x= data, y = estimate)) +
+  geom_line(color = 1) +
+  geom_rug_ks(colour=4)
+```
+
+```{r}
+Hmisc::hdquantile(filter(dat, presence ==1)$gst, c(0.025, .975), se=TRUE)
+```
+
+BUT these are mixed distributions of temperate and tropical. Is there a way to separate these out? yes!
+
+```{r}
+library(mclust)
+BIC <- mclustBIC(filter(dat, presence ==1)$gst)
+plot(BIC)
+
+summary(BIC)
+
+mod1 <- Mclust(filter(dat, presence ==1)$gst, x = BIC)
+summary(mod1, parameters = TRUE)
+plot(mod1, what = "classification")
+plot(mod1, what = "density")
+
+boot1 <- MclustBootstrap(mod1, nboot = 99999, type = "bs")
+summary(boot1, what = "se")
+
+summary(boot1, what = "ci")
+plot(boot1, what = "mean")
+plot(boot1, what = "var")
+
+mn <- boot1$mean %>% adrop(2)
+sd <- boot1$var %>% adrop(2:3) %>% sqrt
+
+qnorm(0.01, mn[,1], sd[,1]) %>% hist
+qnorm(0.99, mn[,1], sd[,1]) %>% hist
+
+qnorm(0.01, mn[,2], sd[,2]) %>% hist
+qnorm(0.99, mn[,2], sd[,2]) %>% hist
+```
+
+```{r}
+library(mixtools)
+library(plotmm)
+set.seed(1000)
+mix_mat <- normalmixEM(filter(dat, presence ==1)$gst, k = 3)   # Using all default parameters
+plot_mm(mix_mat, k = 3)
+#plot_cut_point(mix, plot = TRUE, color = 'amerika')
+#plot_cut_point(mix, plot = FALSE) 
+qnorm(c(0.025, 0.975), mix_mat$mu[1], mix_mat$sigma[1])
+qnorm(c(0.025, 0.975), mix_mat$mu[2], mix_mat$sigma[2])
+
+mix_mat3 <- normalmixEM(filter(dat, presence ==1)$bio1, k = 3)   # Using all default parameters
+plot_mm(mix_mat3, k = 3)
+#plot_cut_point(mix, plot = TRUE, color = 'amerika')
+#plot_cut_point(mix, plot = FALSE) 
+qnorm(c(0.025, 0.975), mix_mat3$mu[1], mix_mat3$sigma[1])
+qnorm(c(0.025, 0.975), mix_mat3$mu[3], mix_mat3$sigma[3])
+
+mix_gdd10 <- normalmixEM(filter(dat, presence ==1)$gdd10, k = 2)   # Using all default parameters
+plot_mm(mix_gdd10, k = 2)
+qnorm(c(0.025, 0.975), mix_gdd10$mu[1], mix_gdd10$sigma[1])
+qnorm(c(0.025, 0.975), mix_gdd10$mu[2], mix_gdd10$sigma[2])
+```
+
+When we try to unmix the distributions we get, for temperate, a bio1 range of 8.5 to 22.8, and for tropical a range of 23.9 to 28.1. Unclear if 2 or 3 mixtures are better, to account for the dwarf varieties in manchuria.
+
+(fyi, there's a much better bimodal pattern with gdd10 -- but unsure how useful that wil be below vs using MAT as a rough proxy. this actually makes sense with the far north varieties, because they can still get enough accumulated heat in the shorter growing season even if the cold winters bring mat down. yep, that's it, because growing season temp also has a nice bimodal separation. actually, although plotted at the lower end bio1/gdd10 don't match, at the higher end they do -- so it would be fine to move back and borth as needed)
+
+```{r}
+plot(chelsa[['gdd10']], chelsa[['bio1']])
+
+temp_reg <- chelsa %>%
+  as_tibble() %>%
+  select(bio1, gdd10)
+
+tmod <- mgcv::bam(bio1 ~ s(gdd10, bs = 'cr'), data = temp_reg)
+
+plot(tmod)
+plot(tmod, resid = TRUE, color = 'red')
+
+predict(tmod, list(gdd10 = qnorm(c(0.025, 0.975), mix_gdd10$mu[1], mix_gdd10$sigma[1])))
+predict(tmod, list(gdd10 = qnorm(c(0.025, 0.975), mix_gdd10$mu[2], mix_gdd10$sigma[2])))
+```
+
+so a quick and dirty transformation gets us 8.16-19.85 for temperate and 23.55 and 28.2 for bio1 based on gdd10 thresholds. this is reasonably close to the k=2 bio1 mixture, and very close to the k=3 one. lets split the difference and say 8-20 for temperate and 23-28 for tropical?
+
+shifting to 97.5 quantile, we get 6.7 - 20.5 and 23.1-28.64. which is close to the empirical quantiles for the mixed distribution, but here with the estimated normals its more sensitive to the high lat crops
+
+Plotting the kernel density estimates of rice presence and absence points in 2d climate space reveals a relatively narrow range of temperature tolerance. Temperate and tropical varieties are clearly distinguished, with temperate Japonica varieties occurring between 10 and 20 degrees Celsius MAT and tropical Indica varieties between 22 and 29 degrees. There is much tighter overlap between the two varieties in terms of total annual precipitation, with a range between 500mm/year up to 2000 mm/year, with Indica varieties showing a wider range of potential precipitation values. The niche for Indica varieties overlaps much more strongly with the absence points than Japonicas, suggesting additional factors that distinguish indica presences in their ranges.
+
+note this ggrdiges method uses joint bandwidth. ideally we'd do by-variable density estimation using bw = 'SD', but in practice this doesn't make a huge difference
+
+```{r}
+a <- dat %>% 
+  filter(presence == 1) %>%
+  pivot_longer(ai:vpd_range, names_to = 'var') %>%
+  filter(var %in% c('bio1', 
+                    'bio5'#, 
+                    #'bio8', 
+                    #'bio10'#, 
+                    #'gst'
+                    )) %>%
+  mutate(name = factor(case_when(var == 'bio1' ~ 'Mean annual',
+                           #      var == 'bio10' ~ 'Max warmest quarter',
+                                 var == 'bio5' ~  'Max warmest'#,
+                               #  var == 'bio8' ~ 'Mean wettest',
+                               #  var == 'gst' ~ 'Growing season'
+                               ),
+                        levels = c('Mean annual', 
+                          #         'Max warmest quarter', 
+                                   'Max warmest'#,
+                                #   'Mean wettest', 
+                                   #'Growing season'
+                                ))) %>%
+  ggplot(aes(value, name)) +
+  scale_y_discrete(limits = rev) +
+ # geom_density(data = dat_present %>% pivot_longer(bio1:bio9, names_to = 'var') %>%
+#  filter(var %in% c('bio1', 'bio10', 'bio11', 'bio8', 'bio9', 'bio5', 'bio6'))) +
+  geom_density_ridges(alpha = 0.75, scale = 1, jittered_points = TRUE, position = 'raincloud', point_alpha = 0.25, point_size = 0.5, quantile_lines = TRUE, quantiles = c(0.025, 0.975))+
+  labs(x = 'Temperature (°C)', y = '') +
+ # scale_fill_brewer(palette = 'Spectral', guide = 'none', direction = -1 ) +
+  #theme_ridges(center_axis_labels = TRUE) +
+     theme(axis.text.y = element_text(vjust = 0)) +
+   # theme(axis.text.y = element_blank()) +
+coord_cartesian(clip = 'off')
+  #theme(axis.text.y = element_text(margin = margin(l = 0, r = -200), vjust = -5))
+a
+```
+
+```{r}
+ dat %>% 
+  filter(presence == 1) %>%
+  pivot_longer(ai:vpd_range, names_to = 'var') %>%
+  filter(var %in% c('bio1', 'bio5', 'bio6', 'bio7', 'bio8', 'bio9', 'bio10', 'bio11')) %>%
+#  mutate(name = factor(case_when(var == 'bio1' ~ 'Mean annual',
+#                                 var == 'bio5' ~  'Max warmest',
+#                                 var == 'bio8' ~ 'Mean wettest'),
+ #                       levels = c('Mean annual', 'Max warmest', 'Mean wettest'))) %>%
+  ggplot(aes(value, var)) +
+  scale_y_discrete(limits = rev) +
+ # geom_density(data = dat_present %>% pivot_longer(bio1:bio9, names_to = 'var') %>%
+#  filter(var %in% c('bio1', 'bio10', 'bio11', 'bio8', 'bio9', 'bio5', 'bio6'))) +
+  geom_density_ridges(alpha = 0.75, aes(fill = var), scale = 1, jittered_points = TRUE, position = 'raincloud', point_alpha = 0.25, point_size = 0.5, quantile_lines = TRUE, quantiles = c(0.025, 0.975))+
+  labs(x = 'Temperature (°C)', y = '') +
+  scale_fill_brewer(palette = 'Spectral', guide = 'none') +
+  #theme_ridges(center_axis_labels = TRUE) +
+     theme(axis.text.y = element_text(vjust = 0)) +
+   # theme(axis.text.y = element_blank()) +
+coord_cartesian(clip = 'off')
+
+ train %>% 
+  filter(presence == 1) %>%
+  pivot_longer(ai:vpd_range, names_to = 'var') %>%
+  filter(var %in% c('bio1', 'bio5', 'bio6', 'bio7', 'bio8', 'bio9', 'bio10', 'bio11')) %>%
+#  mutate(name = factor(case_when(var == 'bio1' ~ 'Mean annual',
+#                                 var == 'bio5' ~  'Max warmest',
+#                                 var == 'bio8' ~ 'Mean wettest'),
+#                        levels = c('Mean annual', 'Max warmest', 'Mean wettest'))) %>%
+  ggplot(aes(value, var)) +
+  scale_y_discrete(limits = rev) +
+ # geom_density(data = dat_present %>% pivot_longer(bio1:bio9, names_to = 'var') %>%
+#  filter(var %in% c('bio1', 'bio10', 'bio11', 'bio8', 'bio9', 'bio5', 'bio6'))) +
+  geom_density_ridges(alpha = 0.75, aes(fill = var), scale = 1, jittered_points = TRUE, position = 'raincloud', point_alpha = 0.25, point_size = 0.5, quantile_lines = TRUE, quantiles = c(0.025, 0.975))+
+  labs(x = 'Temperature (°C)', y = '') +
+  scale_fill_brewer(palette = 'Spectral', guide = 'none') +
+  #theme_ridges(center_axis_labels = TRUE) +
+     theme(axis.text.y = element_text(vjust = 0)) +
+   # theme(axis.text.y = element_blank()) +
+coord_cartesian(clip = 'off')
+```
+
+Comparing that to distributions from the occurrence points, we see the bias in the latter where its basically only getting tropical occurrences
+
+```{r}
+dat_present <- dat %>%
+  mutate(era = 'present') %>%
+  mutate(type = 'irri')
+
+dat_gbif <- sativa %>%
+  terra::extract(chelsa, .) %>%
+  mutate(type = 'sativa')
+
+bind_rows(dat_present) %>% 
+  filter(presence == 1) %>%
+  bind_rows(dat_gbif) %>%
+      pivot_longer(bio1:bio9, names_to = 'bio') %>%
+  filter(bio %in% c('bio1', 'bio5', 'bio8')) %>%
+  mutate(name = factor(case_when(bio == 'bio1' ~ 'Mean annual',
+                                 bio == 'bio5' ~  'Max warmest',
+                                 bio == 'bio8' ~ 'Mean wettest'),
+                        levels = c('Mean annual', 'Max warmest', 'Mean wettest'))) %>%
+  ggplot(aes(value, name, color = type)) +
+  scale_y_discrete(limits = rev) +
+ # geom_density(data = dat_present %>% pivot_longer(bio1:bio9, names_to = 'bio') %>%
+#  filter(bio %in% c('bio1', 'bio10', 'bio11', 'bio8', 'bio9', 'bio5', 'bio6'))) +
+  geom_density_ridges(alpha = 0.75, aes(fill = name), scale = 1, jittered_points = TRUE, position = 'raincloud', point_alpha = 0.25, point_size = 0.5, quantile_lines = TRUE, quantiles = c(0.01, 0.99))+
+  labs(x = 'Temperature (°C)', y = '') +
+  scale_fill_brewer(palette = 'Spectral', guide = 'none') +
+  #theme_ridges(center_axis_labels = TRUE) +
+     theme(axis.text.y = element_text(vjust = 0)) +
+   # theme(axis.text.y = element_blank()) +
+coord_cartesian(clip = 'off')
+  #theme(axis.text.y = element_text(margin = margin(l = 0, r = -200), vjust = -5))
+
+```
+
+```{r}
+b <- dat %>%
+  filter(presence == 1) %>%
+  ggplot(aes(bio1, bio5)) +
+  stat_density_2d(geom = 'polygon', aes(alpha = after_stat(level))) +
+  labs(x = 'Mean annual temperature (°C)', y = 'Max temperature of the warmest month (°C)') +
+  scale_alpha_continuous(guide = 'none') +
+  coord_fixed() +
+  scale_x_continuous(limits = c(2, 30))
+
+
+b
+library(eks)
+
+eks_1 <- dat %>%
+    filter(presence == 1) %>%
+  select(bio1, bio5) %>%
+  st_drop_geometry() %>%
+  tidy_kde() 
+
+eks_2 <- dat %>%
+      filter(presence == 0) %>%
+
+  select(bio1, bio5) %>%
+  
+  st_drop_geometry() %>%
+  tidy_kde() 
+
+ggplot(eks_2, aes(bio1, bio5)) +
+  geom_contour_ks(cont = c(95), alpha = 0.5) +
+  geom_contour_ks(data = eks_1, color = 'red', cont = c(25, 95)) +
+  coord_equal()
+```
+
+Looking into temperature in more detail reveals distinct dependencies on cold and warm extremes. As before, the temperate and tropical varieties are clearly separated in the kernel density plots. Temperate Japnica varieties are present down to -10 degrees Celsius, and fall off around 5 to ten degrees. Tropical Indica vareites have a minum ovf 5 degrees and a maximum of around 25. For maximum temperatures, Japonicas occupy a small range between 25 and 35 degrees, and Indicas fall between 30 and 42 degrees.
+
+> Yet rice seedlings are still suffering from cold stress during early spring and late fall, or even in cold nights when the temperature drops below 12 degrees Celsius (or 54 degrees Fahrenheit), especially in the regions with high latitude. --http://english.genetics.cas.cn/rh/rp/201808/t20180817_196206.html
+
+```{r}
+c <- dat %>%
+ # mutate(presence = if_else(presence == 1, 'Present', 'Absent')) %>%
+  filter(presence == 1) %>%
+  ggplot(aes(bio5, bio6)) +
+  stat_density_2d(geom = 'polygon', aes(alpha = after_stat(level))) +
+  #  stat_density_2d(aes( color = presence)) +
+  labs(x = 'Max temperature of the warmest month', y = 'Min temperature of the coldest month') +
+  scale_alpha_continuous(guide = 'none') +
+  scale_y_continuous(limits = c(-29, 28)) +
+  coord_equal()
+c
+```
+
+```{r fig.height=6, fig.width=6}
+#a / (b + c + d) 
+a / b + plot_layout(heights = c(1, 2)) + plot_annotation(tag_levels = 'A', tag_suffix = ')')
+```
+
+```{r}
+ggsave('2_kde_modern.png', width = 6, height = 6)
+```
+
+Plotting chelsa climate data and irri rice extents
+
+```{r}
+ch_plt <- chelsa_files[c(2,16)] %>% # brittle!
+  read_stars() %>%
+  st_crop(asia_bbox_sf) %>%
+  setNames(c('Mean annual temperature', 'Max temperature of the warmest month')) %>%
+  merge() %>%
+  .[countries]
+
+e <- ggplot() +
+  geom_stars(data = ch_plt, downsample = c(10,10,0)) +
+  facet_wrap(~attributes, nrow = 2) +
+  scale_fill_viridis_c(option = 'magma', name = '(°C)', na.value = NA) +
+  labs(x = '', y = '') +
+  geom_sf(data = coasts)
+e
+```
+
+```{r}
+f <- ggplot() +
+  geom_stars(data = st_as_stars(irri) > 0.01) +
+  scale_fill_manual(values = c('grey', 'red'), na.value = NA, guide = FALSE) +
+  geom_sf(data = coasts %>% st_crop(st_as_stars(irri)), color = 'white') +
+  labs(title = 'Satellite-derived lowland rice extent', x = '', y = '') +
+  geom_sf(data = coasts)
+#caption = 'Nelson and Gumma (2015) "A map of lowland rice extent in the major rice growing countries of Asia"'
+f
+```
+
+```{r fig.height=5, fig.width=10}
+f + e + plot_annotation(tag_levels = 'A', tag_suffix = ')') + plot_layout(widths = c(2, 1))
+```
+
+```{r}
+ggsave('1_data.png', width = 10, height = 5)
+```
+
+```{r}
+(f / e) | ( a / b)  | (c + d) #+ plot_annotation(tag_levels = 'A')
+
+(f + e) / a / (b + c + d) + plot_layout(heights = c(2, 1, 1))
+```
+
+Same pattern when we look at average temperatures of the coldest and warmest quarters, with a clear separation between the two around 12 degrees cold temperatures and a max of 30 degrees, and an upper temperature threshold of about 33 degrees warm season temperatures. Notably, the range of minimum temperatures spanned by rice is much larger than the span of maximum temperatures, as well as the differentiation between the two varieties. Likewise, the maximum temperatures for both seasonal variables similar, in the 30-35 degree range
+
+```{r}
+dat %>%
+  mutate(presence = if_else(presence == 1, 'Present', 'Absent')) %>%
+  ggplot(aes(bio10, bio11)) +
+  stat_density_2d(geom = 'polygon',aes(alpha = ..level.., fill = presence)) +
+  labs(x = 'Mean temperature of the warmest quarter', y = 'Mean temperature of the coldest quarter') +
+  scale_alpha_continuous(guide = 'none') +
+  coord_equal() +
+  scale_y_continuous(limits = c(-30, 30))
+```
+
+Soberon and Pena 2017: \> "It is known that distributions of temperature requirements \[46\] commonly have sharp cut-offs at high temperatures and longer tails at low temperatures. Also, a recent analysis of the temperature tolerance of more than 2,500 plants and of endothermic and ectothermic animals \[32\] reported significantly higher variability in tolerance to lower than to upper thermal limits. Therefore, an asymmetric physiological tolerance (their NF) could explain the distribution of occurrences in Fig 2. However, the proportion of environmental space available on different regions around the NF of the species is not uniform. The simplest explanation for the skewed distribution of the environments of the occurrence points then would be simply that the realized niches of the species we use are biased to the left of their fundamental niches because environmental space is lacking on the hotter parts (S1 File, Fig A1). This is an explanation based on the combination of the shape of E(t, G) and the location of the species' NF, as Eq (1) would suggest it should be done, thus highlighting the importance of the existing niche, a seldom remembered concept."
+
+cant tell if this is unexperienced heat or not in current climate, that's why we need to use paleoclimate data
+
+## Changing rice niches in the Holocene
+
+EOF analysis of Holocene temperature reconstruction reveals two leading modes of decadal-scale variability that collectively explain 86% of the decadal scale temperature variability. We focus on the period from 7000 to 1000 years ago to remove impacts from the last deglaciation and contemporary ghg emissions. These two modes reflect north and South china variability. A trailing third mode represents a dipole pattern in Australia and Indonesia focused on the period around 6kabp, reflecting the opening of the Sunda shelf and its concomitant impact on the monsoon system.
+
+```{r, fig.width = 8}
+plot_scree(erb_decadal %>% filter(between(time, -7000, -1000)), scale = TRUE)
+pat <- get_patterns(erb_decadal %>% filter(between(time, -7000, -1000)), 
+                    k = 3, scale = TRUE, rotate = FALSE)
+eof <- plot_eofs(pat) +
+  geom_sf(data = coasts %>% st_crop(asia_bbox_sf)) +
+  geom_sf(data = arch_dat, size = 0.5)
+
+amp <- plot_amps(pat, scaled = FALSE, events = c(-2660, -2450)) +geom_smooth()
+
+eof / amp
+
+#plot(trace_mean_5bp_3bp)
+#plot(st_apply((filter(units::drop_units(erb_decadal)) + st_as_stars(rast(trace_mean_5bp_3bp))) > 25, 1:2, sum))
+```
+
+```{r}
+erb_decadal
+```
+
+Marked warmth on pc1 ca 3-2ka by. Look into Songguk-ri culture which collapses ca 2.3ka. no -- 14c plateau!
+
+```{r}
+arch_map <- arch_dat %>%
+  arrange(-age) %>%
+  filter(age > -10000, age < -2000) %>%
+   mutate(mil = as.factor((age - age %% 1000) /1000 + 1)) %>%
+  arrange(mil) %>%
+  ggplot() +
+  geom_sf(data = countries, color = 'white') +
+  geom_sf(size = 1, alpha = 0.75) +
+  facet_wrap(~mil, ncol = 4)
+arch_map
+```
+
+```{r}
+arch_dat %>%
+  arrange(-age) %>%
+  filter(age > -8000, age < -2000) %>%
+   mutate(mil = as.factor((age - age %% 1000) /1000 + 1)) %>%
+  arrange(mil) %>%
+  group_by(mil) %>%
+  st_kde() %>%
+  st_get_contour() %>%
+  ggplot() +
+  geom_sf(data = countries, color = 'white') +
+  geom_sf() +
+ # geom_sf(size = 1.5, alpha = 0.75) +
+  facet_wrap(~mil, ncol = 4) 
+```
+
+```{r}
+arch_dens_tmax <- km_interp %>%
+ # filter(age > -10000, age < -2000) %>%
+   mutate(mil = (time - time %% 1000) /1000 + 1) %>%
+  filter(between(mil, -8, -2)) %>%
+    mutate(mil = as.factor(mil)) %>%
+  ggplot(aes(tmax,  factor(mil))) +
+  scale_y_discrete(limits = rev) +
+  geom_density_ridges(aes(fill = mil), panel_scaling = TRUE, scale = 2, alpha = 0.5, jittered_points = TRUE, point_alpha = 0.25, point_size = 0.5, quantile_lines = TRUE, quantiles = c(0.025, 0.975)) +
+  labs(y = 'Millennium BP', x = 'Max temperature of the warmest month') +
+  scale_fill_brewer(palette = 'Spectral')
+
+arch_dens_tmin <- km_interp %>%
+    #filter(time > -10000) %>%
+   mutate(mil = (time - time %% 1000) /1000 + 1) %>%
+  filter(between(mil, -8, -2)) %>%
+    mutate(mil = as.factor(mil)) %>%
+  ggplot(aes(tmin,  factor(mil))) +
+  scale_y_discrete(limits = rev) +
+  geom_density_ridges(aes(fill = mil), panel_scaling = TRUE, scale = 2, alpha = 0.5, jittered_points = TRUE, point_alpha = 0.25, point_size = 0.5, quantile_lines = TRUE, quantiles = c(0.025, 0.975)) +
+  labs(y = 'Millennium BP', x = 'Min temperature of the coldest month') +
+    scale_fill_brewer(palette = 'Spectral')
+
+arch_dens_tmax
+arch_dens_tmin
+```
+
+```{r}
+arch_dens_mat <- km_interp %>%
+      filter(time > -10000) %>%
+   mutate(mil = (time - time %% 1000) /1000 + 1) %>%
+ # mutate(mil = if_else(mil < -8, -9, mil)) %>%
+  filter(between(mil, -8, -2)) %>%
+      mutate(mil = as.factor(mil)) %>%
+  ggplot(aes(MAT,  factor(mil))) +
+  scale_y_discrete(limits = rev) +
+  geom_density_ridges(aes(fill = mil), panel_scaling = TRUE, scale = 2, alpha = 0.5, jittered_points = TRUE, point_alpha = 0.25, point_size = 0.5, quantile_lines = TRUE, quantiles = c(0.025, 0.975)) +
+  labs(y = 'Millennium BP', x = 'Mean annual Temperature') +
+      scale_fill_brewer(palette = 'Spectral')
+arch_dens_mat
+```
+
+```{r fig.width = 8, fig.height = 8}
+arch_map / (arch_dens_mat + arch_dens_tmax + plot_layout(guides = 'collect')) + plot_annotation(tag_levels = 'A')
+```
+
+```{r}
+ggsave('arch_dist.png', height = 8, width = 8)
+```
+
+```{r}
+km_interp %>% filter(tmax > 39.5) %>%
+ ggplot() +
+  geom_sf(aes(color = tmax)) +
+  geom_sf(data = coasts)
+```
+
+```{r}
+km_interp %>%
+  st_drop_geometry() %>%
+    mutate(country = st_join(arch_dat, countries)$name) %>%
+    filter(time > -10000) %>%
+  pivot_longer(-c(time, country)) %>%
+ggplot(aes(time, value)) +
+  geom_point(aes(color = country)) +
+  facet_wrap(~name, scales = 'free_y')
+
+km_interp %>%
+  st_drop_geometry() %>%
+    mutate(source = arch_dat$source) %>%
+  filter(time > -10000) %>%
+  pivot_longer(-c(time, source)) %>%
+ggplot(aes(time, value)) +
+  geom_point(aes(color = source)) +
+  facet_wrap(~name, scales = 'free_y')
+
+km_interp %>%
+  mutate(var = st_coordinates(geometry)[,1] > 97) %>%
+  st_drop_geometry() %>%
+  filter(time > -10000) %>%
+  pivot_longer(-c(time, var)) %>%
+ggplot(aes(time, value)) +
+  geom_point(aes(color = var)) +
+  facet_wrap(~name, scales = 'free_y')
+```
+
+```{r}
+km_interp %>%
+  #filter(time > -10000) %>%
+  mutate(var = st_coordinates(geometry)[,1] > 97) %>%
+  st_drop_geometry() %>%
+   mutate(mil = (time - time %% 1000) /1000 + 1) %>%
+  filter(between(mil, -8, -2)) %>%
+  ggplot(aes(MAT,  factor(mil))) +
+  scale_y_discrete(limits = rev) +
+  geom_density_ridges(aes(fill = as.factor(mil)), panel_scaling = TRUE, scale = 2, alpha = 0.5, jittered_points = TRUE, point_alpha = 0.25, point_size = 0.5, quantile_lines = TRUE, quantiles = c(0.025, 0.975)) +
+  facet_wrap(~var) +
+  labs(y = 'Millennium BP', x = 'Maximum temperature of the warmest month') +
+  scale_fill_brewer(palette = 'Spectral')
+
+km_interp %>%
+  #filter(time > -10000) %>%
+  mutate(var = st_coordinates(geometry)[,1] > 97) %>%
+  st_drop_geometry() %>%
+   mutate(mil = (time - time %% 1000) /1000 + 1) %>%
+  filter(between(mil, -8, -2)) %>%
+  ggplot(aes(tmax,  factor(mil))) +
+  scale_y_discrete(limits = rev) +
+  geom_density_ridges(aes(fill = as.factor(mil)), panel_scaling = TRUE, scale = 2, alpha = 0.5, jittered_points = TRUE, point_alpha = 0.25, point_size = 0.5, quantile_lines = TRUE, quantiles = c(0.025, 0.975)) +
+  facet_wrap(~var) +
+  labs(y = 'Millennium BP', x = 'Maximum temperature of the warmest month') +
+  scale_fill_brewer(palette = 'Spectral')
+```
+
+same as above but focusing on pre and post 4.2ka
+
+```{r}
+km_interp %>%
+    filter(time > -10000) %>%
+   mutate(mil = time > -4200) %>%
+  ggplot(aes(MAT,  factor(mil))) +
+  scale_y_discrete(limits = rev) +
+  geom_density_ridges(aes(fill = as.factor(mil)), panel_scaling = TRUE, scale = 2, alpha = 0.5, jittered_points = TRUE, point_alpha = 0.25, point_size = 0.5, quantile_lines = TRUE, quantiles = c(0.01, 0.99)) +
+  labs(y = 'Millennium BP', x = 'Mean annual Temperature') +
+      scale_fill_brewer(palette = 'Spectral')
+
+ km_interp %>%
+  filter(time > -10000) %>%
+   mutate(mil = time > -4200) %>%
+  ggplot(aes(tmax,  factor(mil))) +
+  scale_y_discrete(limits = rev) +
+  geom_density_ridges(aes(fill = as.factor(mil)), panel_scaling = TRUE, scale = 2, alpha = 0.5, jittered_points = TRUE, point_alpha = 0.25, point_size = 0.5, quantile_lines = TRUE, quantiles = c(0.01, 0.99)) +
+  labs(y = 'Millennium BP', x = 'Maximum temperature of the warmest month') +
+  scale_fill_brewer(palette = 'Spectral')
+```
+
+## Projected changes in rice suitability
+
+```{r}
+dat_future5 <- dat %>%
+  terra::extract(cmip6_85, .) %>%
+  mutate(presence = dat$presence) %>%
+  mutate(era = 'SSP5-8.5')
+dat_future3 <- dat %>%
+  terra::extract(cmip6_70, .) %>%
+  mutate(presence = dat$presence) %>%
+  mutate(era = 'SSP3-7.0')
+dat_future1 <- dat %>%
+  terra::extract(cmip6_26, .) %>%
+  mutate(presence = dat$presence) %>%
+  mutate(era = 'SSP1-2.6')
+
+
+dat_present <- dat %>%
+  mutate(era = 'present')
+
+
+dat_past <- dat %>%
+    filter(presence == 1) %>%
+  st_extract(chelsa_trace, .) %>%
+  filter(time < -2000) %>%
+  st_apply(1, mean) %>%
+  as_tibble() %>%
+  rename(bio1 = MAT, bio12 = TP, bio5 = tmax, bio6 = tmin) %>%
+  mutate(era = 'past')
+```
+
+Although rice has spread to warmer environments since its domestication, the magnitude of this change over the past 5000 years is small relative to anticipated changes in the next 100 years
+
+```{r}
+bind_rows(dat_future5,
+          dat_future3,
+          dat_future1,
+          dat_present) %>% 
+  filter(presence == 1) %>%
+ #bind_rows(dat_past) %>%
+#  bind_rows(dat_trace) %>%
+ # bind_rows(dat_past2) %>%
+  #bind_rows(dat_past3) %>%
+      pivot_longer(bio1:bio9, names_to = 'bio') %>%
+  filter(bio %in% c('bio1', 'bio5', 'bio8')) %>%
+  mutate(name = factor(case_when(bio == 'bio1' ~ 'Mean annual temperature',
+                                 bio == 'bio5' ~  'Max temperature of the warmest month',
+                                 bio == 'bio8' ~ 'Mean temperature of wettest month'),
+                        levels = c('Mean annual temperature', 'Max temperature of the warmest month'))) %>%
+  mutate(era = factor(era, levels = c('SSP5-8.5', 'SSP3-7.0', 'SSP1-2.6', 'present'))) %>%
+  ggplot(aes(value)) +
+ # geom_density(data = dat_present %>% pivot_longer(bio1:bio9, names_to = 'bio') %>%
+#  filter(bio %in% c('bio1', 'bio10', 'bio11', 'bio8', 'bio9', 'bio5', 'bio6'))) +
+  geom_density(aes(fill = era), alpha = 0.5)+
+ # geom_density_ridges(aes(fill = era), alpha = 0.5, scale = 2) +
+ scale_fill_brewer(palette = 'Spectral', direction = 1) +
+   scale_color_brewer(palette = 'Spectral') +
+  # scale_fill_viridis_d(option = 'magma') +
+  #  scale_color_viridis_d(option = 'magma') +
+  facet_wrap(~bio, ncol = 1, scales = 'free_y') +
+  labs(x = 'Temperature (°C)')
+```
+
+Maps and thresholds
+
+```{r}
+future_bio5 <- list('../../CHELSA_V2_bio_clim/CHELSA_bio5_1981-2010_V.2.1.tif',
+     '../../CHELSA_CMIP6/ssp126/CHELSA_bio5_2071-2100_gfdl-esm4_ssp126_V.2.1.tif',
+     '../../CHELSA_CMIP6/ssp370/CHELSA_bio5_2071-2100_gfdl-esm4_ssp370_V.2.1.tif', 
+     '../../CHELSA_CMIP6/ssp585/CHELSA_bio5_2071-2100_gfdl-esm4_ssp585_V.2.1.tif') %>%
+  read_stars(along = 'SSP') %>%
+  st_set_dimensions('SSP', values = c('obs', 'ssp1', 'ssp3', 'ssp5')) %>%
+  st_crop(asia_bbox_sf) %>%
+  .[countries]
+
+future_bio1 <- list('../../CHELSA_V2_bio_clim/CHELSA_bio1_1981-2010_V.2.1.tif',
+     '../../CHELSA_CMIP6/ssp126/CHELSA_bio1_2071-2100_gfdl-esm4_ssp126_V.2.1.tif',
+     '../../CHELSA_CMIP6/ssp370/CHELSA_bio1_2071-2100_gfdl-esm4_ssp370_V.2.1.tif', 
+     '../../CHELSA_CMIP6/ssp585/CHELSA_bio1_2071-2100_gfdl-esm4_ssp585_V.2.1.tif') %>%
+  read_stars(along = 'SSP') %>%
+  st_set_dimensions('SSP', values = c('obs', 'ssp1', 'ssp3', 'ssp5')) %>%
+  st_crop(asia_bbox_sf) %>%
+  .[countries]
+
+future_bio10 <- list('../../CHELSA_V2_bio_clim/CHELSA_bio10_1981-2010_V.2.1.tif',
+     '../../CHELSA_CMIP6/ssp126/CHELSA_bio10_2071-2100_gfdl-esm4_ssp126_V.2.1.tif',
+     '../../CHELSA_CMIP6/ssp370/CHELSA_bio10_2071-2100_gfdl-esm4_ssp370_V.2.1.tif', 
+     '../../CHELSA_CMIP6/ssp585/CHELSA_bio10_2071-2100_gfdl-esm4_ssp585_V.2.1.tif') %>%
+  read_stars(along = 'SSP') %>%
+  st_set_dimensions('SSP', values = c('obs', 'ssp1', 'ssp3', 'ssp5')) %>%
+  st_crop(asia_bbox_sf) %>%
+  .[countries]
+
+ggplot() +
+  geom_stars(data = future_bio5 > 39.6, downsample = c(20,20,0)) +
+  facet_wrap(~SSP) +
+  scale_fill_manual(values = c('grey', 'red'), name = 'TMAX > 39.6', na.value = NA) +
+  geom_sf(data = coasts) +
+  labs(x = '', y = '')
+
+ggplot() +
+  geom_stars(data = future_bio1 > 27.5, downsample = c(20,20,0)) +
+  facet_wrap(~SSP) +
+  scale_fill_manual(values = c('grey', 'red'), name = 'MAT > 27.5', na.value = NA) +
+  geom_sf(data = coasts) +
+  labs(x = '', y = '')
+
+ggplot() +
+  geom_stars(data = future_bio10 > 33, downsample = c(20,20,0)) +
+  facet_wrap(~SSP) +
+  scale_fill_manual(values = c('grey', 'red'), name = 'BIO10 > 33', na.value = NA) +
+  geom_sf(data = coasts) +
+  labs(x = '', y = '')
+## do this for japonica thresholds too!
+```
+
+```{r}
+ggsave('future_mat_niche_gfdl_esm.png', width = 6, height = 4)
+```
+
+```{r}
+library(exactextractr)
+test_fut <- c(chelsa[['bio1']],cmip6_26[['bio1']], cmip6_70[['bio1']], cmip6_85[['bio1']]) %>%
+  setNames( c('obs', 'ssp1', 'ssp3', 'ssp5'))
+plot(test_fut)
+areas <- terra::cellSize(test_fut, unit = 'km')
+test2 <- (areas * (test_fut > 27.5)) %>%
+  setNames( c('obs', 'ssp1', 'ssp3', 'ssp5'))
+plot(test2)
+test3 <- exact_extract(test2, countries, 'sum', append_cols = c('admin', 'pop_est'))
+test4_areas <- exact_extract(areas, countries, 'sum', append_cols = 'admin')
+tab <- test4_areas %>%
+  rename(area = sum) %>%
+  left_join(test3) %>%
+  pivot_longer(sum.obs:sum.ssp5) %>%
+  mutate(percent = round(value / area * 100),
+         name = str_sub(name, 5)) %>%
+  select(admin, pop_est, name, percent) %>%
+  pivot_wider(names_from = name, values_from = percent) %>%
+  filter(ssp5 > 0, pop_est > 100) %>%
+  arrange(-as.numeric(pop_est), -ssp5) %>%
+  select(-pop_est) %>%
+  rename(Country = admin)
+```
+
+```{r}
+knitr::kable(tab)
+```
+
+```{r}
+tab %>%
+  pivot_longer(-Country) %>%
+  ggplot(aes(name, value, group = Country, color = Country)) + geom_line()
+```
+
+```{r}
+admin_summary <- (future_bio1 > 27.5) %>%
+  st_as_stars() %>%
+  aggregate(countries, fun = function(x) sum(x == TRUE, na.rm = TRUE) / length(na.omit(x)))
+
+plot(countries)
+```
+
+```{r}
+# this is where tropicals cannot grow
+ggplot() +
+  geom_stars(data = future_bio1 > 28 | future_bio1 < 23.5, downsample = c(20,20,0)) +
+  facet_wrap(~SSP) +
+  geom_sf(data = coasts)
+
+# this is where temperates cannot grow
+ggplot() +
+  geom_stars(data = future_bio1 > 20 | future_bio1 < 6.7, downsample = c(20,20,0)) +
+  facet_wrap(~SSP) +
+  geom_sf(data = coasts)
+```
+
+Same for IPSL
+
+```{r}
+future_bio5_ipsl <- list('../../CHELSA_V2_bio_clim/CHELSA_bio5_1981-2010_V.2.1.tif',
+     '../../CHELSA_CMIP6/CHELSA_bio5_2071-2100_ipsl-cm6a-lr_ssp126_V.2.1.tif',
+     '../../CHELSA_CMIP6/CHELSA_bio5_2071-2100_ipsl-cm6a-lr_ssp370_V.2.1.tif',
+      '../../CHELSA_CMIP6/CHELSA_bio5_2071-2100_ipsl-cm6a-lr_ssp585_V.2.1.tif') %>%
+  read_stars(along = 'SSP') %>%
+  st_set_dimensions('SSP', values = c('obs', 'ssp1', 'ssp3', 'ssp5')) %>%
+  st_crop(asia_bbox_sf) %>%
+    .[countries]
+
+future_bio1_ipsl <- list('../../CHELSA_V2_bio_clim/CHELSA_bio1_1981-2010_V.2.1.tif',
+      '../../CHELSA_CMIP6/CHELSA_bio1_2071-2100_ipsl-cm6a-lr_ssp126_V.2.1.tif',
+     '../../CHELSA_CMIP6/CHELSA_bio1_2071-2100_ipsl-cm6a-lr_ssp370_V.2.1.tif',
+      '../../CHELSA_CMIP6/CHELSA_bio1_2071-2100_ipsl-cm6a-lr_ssp585_V.2.1.tif') %>%
+  read_stars(along = 'SSP') %>%
+  st_set_dimensions('SSP', values = c('obs', 'ssp1', 'ssp3', 'ssp5')) %>%
+  st_crop(asia_bbox_sf) %>%
+  .[countries]
+
+ggplot() +
+  geom_stars(data = future_bio5_ipsl[countries] > 39.6, downsample = c(20, 20, 0)) +
+  facet_wrap(~SSP) +
+  scale_fill_manual(values = c('grey', 'red'), name = 'TMAX > 39.6', na.value = NA) +
+  geom_sf(data = coasts) +
+  labs(x = '', y = '')
+
+ggplot() +
+  geom_stars(data = future_bio1_ipsl > 27.5, downsample = c(20, 20, 0)) +
+  facet_wrap(~SSP) +
+   scale_fill_manual(values = c('grey', 'red'), name = 'MAT > 27.5', na.value = NA) +
+  geom_sf(data = coasts) +
+  labs(x = '', y = '')
+```
+
+```{r}
+ggsave('future_mat_niche_ipsl.png', width = 6, height = 4)
+```
+
+```{r}
+
+plot((future_bio1 + future_bio1_ipsl) / 2)
+plot((future_bio1 - future_bio1_ipsl))
+
+future_test <- c(future_bio1, future_bio1_ipsl) %>%
+  setNames(c('gfdl', 'ipsl')) %>%
+  st_as_stars() %>%
+  merge(name = 'model')
+```
+
+### Ecocrop
+
+How do these estimates compare to the EcoCROP data?
+
+```{r fig.width=8}
+rice_list <- list('Rice paddy (Japonica)',
+                       'Rice, paddy (Indica)',
+     'Rice upland (Japonica)',
+    'Rice upland (Indica)',
+    'Bulu rice (Javanica)',
+    'African rice') 
+
+thresh <- factor(c('min', 'low_opt', 'high_opt', 'max'),
+       levels = c('min', 'low_opt', 'high_opt', 'max'))
+
+rice_params <- rice_list %>%
+  set_names(rice_list) %>%
+  purrr::map(~Recocrop::ecocropPars(.x)$parameters) %>%
+  purrr::map(as_tibble) %>%
+  purrr::map(~mutate(.x, threshold = thresh, .before = 1)) %>%
+  list_rbind(names_to = 'type') %>%
+  dplyr::select(type, threshold, tavg) %>%
+  pivot_wider(names_from = 'threshold', 
+              values_from = 'tavg')
+rice_params
+
+ggplot(rice_params, aes(y = reorder(type, low_opt))) +
+  geom_linerange(aes(xmin = min, xmax = max)) +
+  geom_linerange(aes(xmin = low_opt, xmax = high_opt), linewidth = 2) +
+    scale_x_continuous(breaks = seq(10, 40, 5)) +
+  labs(y = 'Variety', x = 'Monthly temperature (C)')
+
+rice_list %>%
+  set_names(rice_list) %>%
+  map(~Recocrop::ecocropPars(.x)$parameters) %>%
+  map(as_tibble) %>%
+  map(~mutate(.x, threshold = thresh, .before = 1)) %>%
+  list_rbind(names_to = 'type') %>%
+  select(type, threshold, duration) %>%
+  mutate(threshold = case_when(threshold == 'min' ~ 'avg',
+                               threshold == 'high_opt' ~ 'min',
+                               threshold == 'max' ~ 'max'),
+         type = factor(type, levels = rice_list))  %>%
+  filter(!is.na(threshold)) %>%
+  pivot_wider(names_from = 'threshold', 
+              values_from = 'duration') %>%
+  ggplot(aes(reorder(type, max))) +
+  geom_linerange(aes(ymin = min, ymax = max), linewidth = 1.2) +
+  geom_point(aes(y = avg), size = 4) +
+  labs(y = 'Days', x = 'Variety', title = 'Growing season duration') +
+  theme_bw()
+```
+
+```{r}
+get_ecocrop <- function(x, tmin, tavg, prec) {
+  rice <- Recocrop::ecocropPars(x)
+  m <- Recocrop::ecocrop(rice)
+  Recocrop::control(m, get_max = TRUE)
+  
+  if(str_detect(x, 'paddy')) {
+      return(Recocrop::predict(m, ktmp = tmin, tavg = tavg))
+  } else {
+      return(Recocrop::predict(m, ktmp = tmin, tavg = tavg, prec = prec))
+  }
+}
+```
+
+WC and CHELSA give different results, for precip in particular. CHELSA puts a lot of rice in china that wc would not
+
+```{r, fig.width = 10}
+chelsa_tmp <- rast('../../CHELSA_tas_1981-2010_V.2.1.nc') %>%
+  crop(bbox)
+chelsa_tmn <- rast('../../CHELSA_tasmin_1981-2010_V.2.1.nc') %>% # these units aren't correct?
+  crop(bbox)
+chelsa_prec <- rast('../../CHELSA_pr_1981-2010_V.2.1.nc') %>% 
+  crop(bbox) %>%
+  `*`(100)
+
+suitabilities_chelsa <- map(rice_list, get_ecocrop, chelsa_tmn, chelsa_tmp, prec = chelsa_prec) %>%
+  do.call('c', .) %>%
+  setNames(rice_list)
+
+suitabilities_chelsa <- chelsa[[1]] %>%
+  resample(chelsa_tmp) %>%
+  mask(suitabilities_chelsa, .)
+
+ggplot() +
+  geom_stars(data = st_as_stars(suitabilities_chelsa)) +
+  facet_wrap(~band) +
+  scale_fill_distiller(palette = 'YlGn', direction = 1, name = 'Suitability', na.value = NA)
+```
+
+```{r}
+ggsave('ecocrop_present.png', width = 6, height = 4)
+```
+
+Read in future monthly data.
+
+```{r}
+test_cmip <- list('../../CHELSA_CMIP6/gfdl/ssp126/tas',
+                  '../../CHELSA_CMIP6/gfdl/ssp370',
+                  '../../CHELSA_CMIP6/gfdl/ssp585') %>%
+  map(list.files, full.names = TRUE) %>%
+  map(rast) %>%
+  map(aggregate, fact = 5) %>%
+  map(crop, bbox)
+
+get_ecocrop <- function(x, tmin, tavg, prec) {
+  rice <- Recocrop::ecocropPars(x)
+  m <- Recocrop::ecocrop(rice)
+  Recocrop::control(m, get_max = TRUE)
+  
+  if(str_detect(x, 'paddy')) {
+      return(Recocrop::predict(m, ktmp = tmin, tavg = tavg))
+  } else {
+      return(Recocrop::predict(m, ktmp = tmin, tavg = tavg, prec = prec))
+  }
+}
+
+japonica <- Recocrop::ecocropPars(rice_list[1])
+eco_mod <- Recocrop::ecocrop(japonica)
+Recocrop::control(eco_mod, get_max = TRUE)
+
+test_pred <- map(test_cmip,~Recocrop::predict(eco_mod, tavg = .)) %>%
+  do.call(c, .)
+
+test_pred <- chelsa[[1]] %>%
+  resample(test_cmip[[1]]) %>%
+  mask(test_pred, .)
+
+plot(test_pred);plot(suitabilities_chelsa[[1]])
+plot(resample(test_pred, suitabilities_chelsa) - suitabilities_chelsa[[1]], range = c(-1, 1))
+
+plot(test_pred == 1);plot(suitabilities_chelsa[[1]] == 1)
+```
+
+```{r}
+japon_change <- st_as_stars(resample(test_pred, suitabilities_chelsa) - suitabilities_chelsa[[1]])
+
+plot(japon_change)
+
+ggplot() +
+  geom_stars(data = japon_change, downsample = c(5,5,0)) +
+  facet_grid(~band) + # why aren't facets showing here?
+  scale_fill_distiller(palette = 'RdBu', direction = 1, name = 'Suitability', na.value = NA, limits = c(-1, 1))
+
+```
+
+now for indica
+
+```{r}
+indica <- Recocrop::ecocropPars(rice_list[2])
+eco_mod_indica <- Recocrop::ecocrop(indica)
+Recocrop::control(eco_mod_indica, get_max = TRUE)
+
+test_pred_indica <- map(test_cmip,~Recocrop::predict(eco_mod_indica, tavg = .)) %>%
+  do.call(c, .)
+
+test_pred_indica <- chelsa[[1]] %>%
+  resample(test_cmip[[1]]) %>%
+  mask(test_pred_indica, .)
+
+plot(test_pred_indica);plot(suitabilities_chelsa[[2]])
+plot(resample(test_pred_indica, suitabilities_chelsa) - suitabilities_chelsa[[2]], range = c(-1, 1))
+```
+
+and javanica
+
+```{r}
+javanica <- Recocrop::ecocropPars(rice_list[5])
+eco_mod_javanica <- Recocrop::ecocrop(javanica)
+Recocrop::control(eco_mod_javanica, get_max = TRUE)
+
+test_pred_javanica <- map(test_cmip,~Recocrop::predict(eco_mod_javanica, tavg = .)) %>%
+  do.call(c, .)
+
+test_pred_javanica <- chelsa[[1]] %>%
+  resample(test_cmip[[1]]) %>%
+  mask(test_pred_javanica, .)
+
+plot(test_pred_javanica);plot(suitabilities_chelsa[[2]])
+plot(resample(test_pred_javanica, suitabilities_chelsa) - suitabilities_chelsa[[2]], range = c(-1, 1))
+```
+
+```{r}
+bind_rows(dat_future,
+          dat_present) %>% 
+  filter(presence == 1) %>%
+  ggplot(aes(bio5, bio6)) +
+# geom_point(alpha = 0.1)  +
+  stat_density2d(aes(color = era), geom = 'polygon') +
+  coord_equal()
+
+bind_rows(dat_future,
+          dat_present) %>% 
+  filter(presence == 1) %>%
+  bind_rows(dat_past) %>%
+  ggplot(aes(bio10, bio11)) +
+# geom_point(alpha = 0.1)  +
+  geom_density2d(aes(color = era)) +
+  coord_equal()
+
+bind_rows(dat_future,
+          dat_present) %>% 
+  filter(presence == 1) %>%
+  bind_rows(dat_past) %>%
+  ggplot(aes(bio5, bio6)) +
+# geom_point(alpha = 0.1)  +
+  geom_density2d(aes(color = era)) +
+  coord_equal()
+
+
+bind_rows(dat_future,
+          dat_present) %>% 
+  filter(presence == 1) %>%
+  bind_rows(dat_past) %>%
+  ggplot(aes(gdd0, gsp)) +
+# geom_point(alpha = 0.1)  +
+  geom_density2d(aes(color = era)) 
+
+bind_rows(dat_future,
+          dat_present) %>% 
+  filter(presence == 1) %>%
+  bind_rows(dat_past) %>%
+  ggplot(aes(bio1, bio12)) +
+# geom_point(alpha = 0.1)  +
+  geom_density2d(aes(color = era))
+
+
+```
+
+Plot future months above 33
+
+```{r}
+test_cmip <- list('../../CHELSA_CMIP6/gfdl/ssp126/tmx',
+                  '../../CHELSA_CMIP6/gfdl/ssp370',
+                  '../../CHELSA_CMIP6/gfdl/ssp585') %>%
+  map(list.files, full.names = TRUE) %>%
+  map(rast) %>%
+  map(aggregate, fact = 5) %>%
+  map(crop, bbox)
+```
+
+```{r}
+dat_past <- long %>%
+   # filter(age > -7000) %>%
+    mutate(time = `Calibrated median (BCE/CE)` - 1950) %>%
+  select(time) %>%
+  st_extract(test_interp[,,,1200:1], ., time_column = 'time', interpolate_time = TRUE)
+dat_past_chelsa <- long %>%
+   # filter(age > -7000) %>%
+    mutate(time = `Calibrated median (BCE/CE)` - 1950) %>%
+  select(time) %>%
+  extract(chelsa, .) %>%
+   pivot_longer(bio1:bio9, names_to = 'bio') %>%
+  filter(bio == 'bio1')
+
+  
+bind_rows(dat_future,
+          dat_present) %>% 
+  filter(presence == 1) %>%
+  pivot_longer(bio1:bio9, names_to = 'bio') %>%
+  filter(bio == 'bio1') %>%
+  ggplot(aes(value)) +
+  geom_density(data = dat_present %>% pivot_longer(bio1:bio9, names_to = 'bio') %>%
+  filter(bio == 'bio1')) +
+ # geom_density(data = dat_past %>% rename(value = tas), color = 'blue') +
+  geom_density(data = dat_past_chelsa, color = 'green') +
+  geom_density(aes(color = era))+
+  facet_wrap(~bio, scales = 'free')
+```
+
+```{r}
+train %>%
+   filter(presence == 1) %>%
+  dplyr::select(bio1:bio9) %>%
+  pivot_longer(bio1:bio9, names_to = 'bio') %>%
+  ggplot(aes(value)) +
+  geom_histogram()+
+  facet_wrap(~bio, scales = 'free')
+
+train %>%
+  pivot_longer(bio1:bio9, names_to = 'bio') %>%
+  ggplot(aes(value)) +
+  geom_density(data = train %>%
+  pivot_longer(bio1:bio9, names_to = 'bio')) +
+  geom_density(aes(color = presence))+
+  facet_wrap(~bio, scales = 'free')
+
+```
+
+```{r}
+rice_params
+```
+
+```{r}
+train %>%
+  dplyr::select(presence, ai:vpd_range) %>%
+  pivot_longer(ai:vpd_range, names_to = 'var') %>%
+  ggplot(aes(value)) +
+  geom_density(aes(color = presence))+
+  facet_wrap(~var, scales = 'free')
+```
+
+```{r}
+train %>%
+    #  filter(presence == 1) %>%
+  recipe() %>%
+  update_role(starts_with('bio'), new_role = 'predictor') %>%
+  update_role(presence, new_role = 'outcome') %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_pca(all_numeric_predictors(), num_comp = 2) %>%
+  prep %>%
+  juice %>%
+  ggplot(aes(PC1, PC2)) + 
+  #stat_ellipse(aes(color = presence)) +
+  geom_point() +
+geom_density2d(aes(color = presence)) +
+  coord_equal() 
+
+train %>%
+  st_drop_geometry() %>%
+  remove_missing() %>%
+  recipe(presence ~ .) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_pca(all_numeric_predictors(), num_comp = 2) %>%
+  prep %>%
+  juice %>%
+  filter(presence == 1) %>%
+  ggplot(aes(PC1, PC2)) + 
+  geom_point() +
+  geom_density2d(aes(color = presence)) +
+  coord_equal() 
+
+train %>%
+    st_drop_geometry() %>%
+  remove_missing() %>%
+  recipe(presence ~ .) %>%
+  step_rm(gsp) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_pca(all_numeric_predictors(), num_comp = 3) %>%
+  prep %>%
+  juice %>%
+  filter(presence == 1) %>%
+  ggplot(aes(PC1, PC3)) + 
+  geom_point() +
+  geom_density2d(aes(color = presence)) +
+  coord_equal() 
+
+```
+
+```{r}
+pca_all <- dat %>%
+  st_drop_geometry() %>%
+  dplyr::select(-presence, -extent) %>%
+  mutate(across(everything(), ~replace_na(.x, 0))) %>%
+  select(-gsp) %>%
+  psych::principal(., rotate="varimax", nfactors=3, scores=TRUE)
+pca_all$loadings
+
+
+pca_all$scores %>%
+  as_tibble() %>%
+  bind_cols(dat) %>%
+  filter(presence == 1) %>%
+  ggplot(aes(RC1, RC3)) +
+stat_density2d(geom = 'polygon', alpha = 0.2)
+
+predict(subst(chelsa[[-25]], NA, 0)%>% mask(chelsa[['pet_penman_max']]), pca_all) %>%
+  plot
+```
+
+```{r}
+gam_rot <-  predict(pca_all, remove_missing(st_drop_geometry(train[-1]))) %>%
+  as_tibble() %>%
+  mutate(presence = factor(train$presence, levels = c(0, 1)),
+         weight = if_else(presence == 1, 1, prevalence)) %>%
+    mgcv::bam(presence ~ s(RC1,  bs = 'cr', k = 6)+ 
+          s(RC2, bs = 'cr', k = 6)+
+                  s(RC3, bs = 'cr', k = 6), 
+        data = ., weights = weight, family = binomial(), select = TRUE)
+
+plot(gam_rot, trans = plogis)
+```
+
+```{r}
+
+pca_rotated <- train %>%
+  select(bio1, bio2, bio3, bio4 ,bio5, bio6, bio7, bio8, bio9, bio10, bio11) %>%
+  psych::principal(., rotate="varimax", nfactors=3, scores=TRUE)
+
+
+pca_rotated$scores %>%
+  as_tibble() %>%
+  bind_cols(train) %>%
+  ggplot(aes(RC1, RC2)) +
+  geom_point(alpha= 0.1) +
+geom_density2d(aes(color = presence)) +
+  coord_equal()
+
+pca_rotated$loadings
+
+```
+
+```{r}
+predict(chelsa, pca_rotated) %>%
+  plot
+```
+
+```{r}
+pca_temp_rotated <- train %>%
+  st_drop_geometry() %>%
+  remove_missing() %>%
+  dplyr::select(bio1, bio2, bio3, bio4 ,bio5, bio6, bio7, bio8, bio9, bio10, bio11, gdd0, gdd5, gdd10, gsl, gst) %>%
+  psych::principal(., varimax = TRUE, nfactors=3, scores=TRUE)
+
+pca_temp_rotated$loadings
+predict(chelsa[[c('bio1', 'bio2', 'bio3', 'bio4', 'bio5', 'bio6', 'bio7', 'bio8', 'bio9', 'bio10', 'bio11', 'gdd0', 'gdd5', 'gdd10', 'gsl', 'gst')]], pca_temp_rotated) %>%
+  plot
+```
+
+```{r}
+pca_temp <- train %>%
+  st_drop_geometry() %>%
+  dplyr::select(bio1, bio2, bio3, bio4, bio5, bio6, bio7, bio8, bio9, bio10, bio11) %>%
+  psych::principal(., rotate= 'none', nfactors=2, scores=TRUE)
+
+pca_temp$loadings
+predict(chelsa[[c('bio1', 'bio2', 'bio3', 'bio4', 'bio5', 'bio6', 'bio7', 'bio8', 'bio9', 'bio10', 'bio11')]], pca_temp) %>%
+  plot
+```
+
+```{r}
+pca_temp$scores %>%
+  as_tibble() %>%
+  bind_cols(train) %>%
+  ggplot(aes(PC1, PC2)) +
+  geom_point(alpha = 0.1, size = .5) +
+geom_density2d(aes(color = presence))
+```
+
+```{r}
+predict(cmip6[[c(2,3,4,13,14,15,16,17,18,19,20) - 1]], pca_temp_rotated) %>%
+  plot
+```
+
+```{r}
+predict(cmip6[[c(2,3,4,13,14,15,16,17,18,19,20) - 1]], pca_temp_rotated) %>%
+  extract()
+
+predict(pca_temp_rotated, train[,c(3,4,5,14,15,16,17,18,19,20,21)])
+pca_temp_rotated$scores %>%
+  as_tibble() %>%
+  bind_cols(train) %>%
+  ggplot(aes(PC1, PC2)) +
+  geom_point(alpha= 0.1) +
+geom_density2d(aes(color = presence))
+```
+
+```{r}
+pca_temp_rotated22 <- psych::principal(train[,c(3,16,17,18)], rotate='varimax', nfactors=2, scores=TRUE)
+
+pca_temp_rotated22$loadings
+predict(chelsa[[c(3,16,17,18) - 2]], pca_temp_rotated22) %>%
+  plot
+```
+
+```{r}
+plot(chelsa[['bio6']]); plot(chelsa[['bio5']])
+```
+
+```{r}
+cmip6
+```
+
+Gutaker \> Arrows represent environmental predictors that strongly correlate with a maximal proportion of variation in linear combinations of SNPs. IAG, interannual coefficient of GDD variation; ESH, end of growing season heat; ELV, elevation; PSP, pre-growing season precipitation; ESM, early growing season minimum temperature; IAP, interannual coefficient of precipitation variation; DMF, distance to major freshwater source; WSM, whole growing-season minimum temperature; WSL, whole growing-season length; SPH, soil pH.
+
+## Changing rice niches in the Holocene
+
+```{r}
+trace <- list.files('../../Data/TraCE-TREFHT', full.names = TRUE) %>%
+  map(~read_ncdf(., var = 'TREFHT', eps = 0.01, make_time = FALSE) %>% 
+        st_crop(asia_bbox)) %>%
+  do.call(c, .) %>%
+  mutate(TREFHT = units::set_units(TREFHT, 'degree_C')) %>%
+  st_set_dimensions(names = c('x', 'y', 'time'))
+get_ecocrop2 <- function(x, tmin, tavg, prec) {
+  rice <- Recocrop::ecocropPars(x)
+  m <- Recocrop::ecocrop(rice)
+  Recocrop::control(m, get_max = TRUE)
+  
+  if(str_detect(x, 'paddy')) {
+      return(Recocrop::predict(m, tavg = tavg))
+  } else {
+      return(Recocrop::predict(m, tavg = tavg))
+  }
+}
+
+test_fun <- function(x) Recocrop::predict(m, tavg = x)
+ rice <- Recocrop::ecocropPars(rice_list[1])
+m <- Recocrop::ecocrop(rice)
+Recocrop::control(m, get_max = TRUE)
+
+plot(Recocrop::predict(m, tavg = as(trace[,,,1:12], 'SpatRaster')))
+  plot(Recocrop::predict(m, tavg = as(trace[,,,1:12], 'SpatRaster')) - Recocrop::predict(m, tavg = as(trace[,,,102469:102480], 'SpatRaster')) )
+  
+
+  
+  #test <-   tapp(as(trace, 'SpatRaster'),
+  #             rep(1:(length(st_get_dimension_values(trace, 'time')) / 12), each = 12),
+  #             fun = test_fun) 
+
+```
+
+```{r}
+# it wants time to be positively increasing?
+ggplot() +
+  geom_stars(data = (erb[,,,-c(1,8:9)] - slice(erb, 'time', 1)) %>% st_crop(countries)) +
+  facet_wrap(~time) +
+  #scale_fill_viridis_c(option = 'magma') +
+  scale_fill_distiller(palette = 'RdBu', na.value = 'white', limits = c(-.7, .7)) +
+  geom_sf(data = st_crop(coasts, asia_bbox))
+#rm(erb_rotated, times)
+
+
+  
+
+```
+
+Now get correlation between each pattern and SST and MAT reconstructions globally.
+
+Now plot the climate reconstruction and niche data for 9k to present
+
+```{r}
+arch_dat %>%
+  mutate(time = (age - age %% 1000) /1000 + 1) %>%
+  ggplot() +
+  geom_stars(data = erb - slice(erb, 'time', 1)) +
+  scale_fill_distiller(palette = 'RdBu', limits = c(-.5, .5)) +
+  geom_sf(size = 0.5) + 
+  geom_sf(data = coasts %>% st_crop(asia_bbox)) +
+  facet_wrap(~time)
+
+test_erb <- as(erb, 'SpatRaster') +  as(trace_mean_5bp_3bp, 'SpatRaster') 
+plot(test_erb[[1]] - test_erb[[9]])
+  ggplot() +
+  geom_stars(data = st_as_stars(test_erb)[,,,1:6] - slice(st_as_stars(test_erb), 'band', 1)) +
+  scale_fill_distiller(palette = 'RdBu', limits = c(-1, 1)) +
+  geom_sf(size = 0.5) + 
+  geom_sf(data = coasts %>% st_crop(asia_bbox)) +
+  facet_wrap(~band)
+```
+
+```{r}
+chelsa <- terra::rast(here('data/data-derived/chelsa_10km.nc')) %>%
+    setNames(chelsa_names)
+
+erb_test <- erb_decadal %>%
+  st_set_dimensions('x', point = FALSE) %>%
+  st_set_dimensions('y', point = FALSE) %>%
+  filter()
+
+erb_test2 <- units::drop_units(erb_test) + trace_mean_5bp_3bp
+
+
+
+ test_interp <-  erb_test2 %>% as('SpatRaster') %>%
+   disagg(fact = 5, method = 'bilinear') %>%
+   st_as_stars() %>%
+   st_set_dimensions('band', names = 'time', values = st_get_dimension_values(erb_test, 'time')) %>% setNames('tas')
+ 
+test_chelsa <-  read_stars('data/data-derived/chelsa_10km.nc') %>%
+   st_as_stars() %>%
+   slice('var', 1)
+
+# not interpolated
+arch_dat %>%
+    filter(age > -10000) %>%
+  select(age) %>%
+  mutate(time = age) %>%
+  st_extract(erb_test2[,,,1200:1], ., time_column = 'time', interpolate_time = FALSE) %>%
+  ggplot(aes(time, tas)) +
+  geom_point()+
+   scale_y_continuous(limits = c(-5, 37)) 
+
+# interpolated
+arch_dat %>%
+    filter(age > -10000) %>%
+  select(age) %>%
+  mutate(time = age) %>%
+  st_extract(test_interp[,,,1200:1], ., time_column = 'time', interpolate_time = TRUE) %>%
+  ggplot(aes(time, tas)) +
+  geom_point() +
+   scale_y_continuous(limits = c(-5, 37)) 
+
+# present trace to see impact of no dwonscaling
+arch_dat %>%
+  select(age) %>%
+  mutate(time = age) %>%
+  st_extract(test_interp[,,,1], .) %>%
+  mutate(time = arch_dat$age) %>%
+      filter(time > -10000) %>%
+  ggplot(aes(time, tas)) +
+  geom_point() +
+   scale_y_continuous(limits = c(-5, 37)) 
+# so this and above should be the "same" if not for 
+arch_dat %>%
+  select(age) %>%
+  mutate(time = age) %>%
+  st_extract(test_chelsa, .) %>%
+  mutate(time = arch_dat$age) %>%
+      filter(time > -10000) %>%
+  ggplot(aes(time, chelsa_10km.nc)) +
+  geom_point() +
+   scale_y_continuous(limits = c(-5, 37)) +
+    scale_x_continuous(breaks = seq(-8000, -5, 1000))
+
+# chelsa trace
+arch_dat %>%
+    filter(age > -10000) %>%
+  select(age) %>%
+  mutate(time = age) %>%
+  st_extract(test, ., time_column = 'time', interpolate_time = TRUE) %>%
+  ggplot(aes(time, trace_tmp.tif)) +
+  geom_point() +
+   scale_y_continuous(limits = c(-5, 37)) 
+#km_interp
+km_interp %>%
+  ggplot(aes(time, MAT)) +
+  geom_point() +
+   scale_y_continuous(limits = c(-5, 37)) 
+
+```
+
+```{r}
+km_interp %>%
+  ggplot(aes(time, MAT)) +
+  geom_point() +
+   scale_y_continuous(limits = c(-5, 37)) 
+```
+
+```{r, fig.asp = 1.2}
+library(ggridges)
+arch_dat %>%
+  select(age) %>%
+  mutate(time = age) %>%
+  st_extract(test_interp[,,,1200:1], ., time_column = 'time', interpolate_time = TRUE) %>%
+  mutate(mil = (time - time %% 1000) /1000 + 1) %>%
+    filter(mil > -9) %>%
+  ggplot(aes(tas,  factor(mil))) +
+  scale_y_discrete(limits = rev) +
+  geom_density_ridges() 
+
+arch_dat %>%
+  st_extract(test_interp[,,,1], .) %>%
+  mutate(time = arch_dat$age) %>%
+   mutate(mil = (time - time %% 1000) / 1000 + 1) %>%
+    filter(mil > -9) %>%
+  ggplot(aes(tas, factor(mil))) +
+  scale_y_discrete(limits = rev) +
+  geom_density_ridges() 
+
+arch_dat %>%
+  st_extract(test_chelsa, .) %>%
+  mutate(time = arch_dat$age) %>%
+   mutate(mil = (time - time %% 1000) / 1000 + 1) %>%
+    filter(mil > -9) %>%
+  ggplot(aes(chelsa_10km.nc, factor(mil))) +
+  scale_y_discrete(limits = rev) +
+  geom_density_ridges() 
+
+arch_dat %>%
+    filter(age > -10000) %>%
+    filter(age <=  -2000) %>%
+    select(age) %>%
+  mutate(time = age) %>%
+  st_extract(test, ., time_column = 'time', interpolate_time = TRUE) %>%
+   mutate(mil = (time - time %% 1000) /1000 + 1) %>%
+  ggplot(aes(trace_tmp.tif,  factor(mil))) +
+  scale_y_discrete(limits = rev) +
+  geom_density_ridges() 
+
+
+```
+
+```{r}
+km_interp %>%
+   mutate(mil = (time - time %% 1000) /1000 + 1) %>%
+#  filter(mil < -1) %>%
+ # filter(mil > -8) %>%
+  ggplot() +
+  geom_sf(data = coasts) +
+  geom_sf() +
+  facet_wrap(~mil)
+
+km_interp %>%
+   mutate(mil = (time - time %% 1000) /1000 + 1) %>%
+  ggplot(aes(MAT, tmax)) +
+  geom_point() +
+  stat_density_2d(contour_var = 'ndensity', geom = 'polygon', aes(alpha = ..level..)) +
+  facet_wrap(~mil) +
+  scale_x_continuous(limits = c(5, 30))
+```
+
+```{r}
+km_interp$MAT %>% hist
+```
+
+```{r}
+arch_dat %>%
+  extract(chelsa, .) %>%
+  mutate(time = arch_dat$age) %>%
+   mutate(mil = (time - time %% 1000) /1000 + 1) %>%
+   # filter(mil > -9) %>%
+  ggplot(aes(bio10, bio11)) +
+  geom_point(aes(color = time)) +
+  geom_density2d() +
+  scale_color_viridis_c()  +
+  coord_equal()
+
+arch_dat %>%
+  extract(chelsa, .) %>%
+  mutate(time = arch_dat$age) %>%
+   mutate(mil = (time - time %% 1000) /1000 + 1) %>%
+   # filter(mil > -9) %>%
+  ggplot(aes(bio1, bio12)) +
+  geom_point(aes(color = time)) +
+  geom_density2d() +
+  scale_color_viridis_c() 
+
+arch_dat %>%
+  extract(chelsa, .) %>%
+  mutate(time = arch_dat$age) %>%
+   mutate(mil = (time - time %% 1000) /1000 + 1) %>%
+   # filter(mil > -9) %>%
+  ggplot(aes(bio5, bio6)) +
+  geom_point(aes(color = time)) +
+  geom_density2d() +
+  scale_color_viridis_c() 
+
+arch_dat %>%
+  extract(chelsa, .) %>%
+  mutate(time = arch_dat$age) %>%
+   mutate(mil = (time - time %% 1000) /1000 + 1) %>%
+   # filter(mil > -9) %>%
+  ggplot(aes(gdd10, ai)) +
+  geom_point(aes(color = time)) +
+  geom_density2d() +
+  scale_color_viridis_c() 
+```
+
+```{r}
+plot((as.numeric(!is.na(chelsa[['ai']])) * chelsa[['bio1']]) > 27)
+```
+
+```{r}
+trace_order <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01', 
+                          full.names = FALSE) %>%
+  str_sub(23, -10) %>% 
+  as.numeric() %>% 
+  order()
+
+test <- read_stars('../asia-holocene/trace_tmp.tif') %>%
+    st_set_dimensions('band', values = seq(-12, 0, 0.1) * 1000, names = 'time')
+test
+
+trace_tmp <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01', full.names = TRUE)[trace_order] %>%
+  read_stars(along = 'time') %>%
+  st_set_dimensions('time', values = seq(-12, 0, 0.1) * 1000, names = 'time') %>%
+  setNames('MAT')
+
+trace_prc <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio12', full.names = TRUE)[trace_order] %>%
+  read_stars(along = 'time') %>%
+  st_set_dimensions('time', values = seq(-12, 0, 0.1) * 1000, names = 'time') %>%
+  setNames('TP')
+
+trace_tmax <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio05', full.names = TRUE)[trace_order] %>%
+  read_stars(along = 'time') %>%
+  st_set_dimensions('time', values = seq(-12, 0, 0.1) * 1000, names = 'time') %>%
+  setNames('tmax')
+
+trace_tmin <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio06', full.names = TRUE)[trace_order] %>%
+  read_stars(along = 'time') %>%
+  st_set_dimensions('time', values = seq(-12, 0, 0.1) * 1000, names = 'time') %>%
+  setNames('tmin')
+
+chelsa_trace <- c(trace_prc, trace_tmp)#, trace_tmax, trace_tmin)
+
+km_interp <- arch_dat %>%
+    filter(age > -10000) %>%
+  select(age) %>%
+  mutate(time = age) %>%
+  st_extract(chelsa_trace, ., time_column = 'time', interpolate_time = TRUE) 
+
+km_interp %>%
+     mutate(mil = (time - time %% 1000) /1000 + 1) %>%
+  ggplot(aes(MAT, TP)) +
+  geom_point() +
+  facet_wrap(~mil)
+
+km_interp %>%
+     mutate(mil = (time - time %% 1000) /1000 + 1) %>%
+  #filter(mil <= -2, mil > -7) %>%
+  ggplot(aes(MAT, TP)) +
+  stat_ellipse() +
+  facet_wrap(~mil) 
+
+
+
+
+seq(-12, 0, 0.1) * 1000
+test
+plot(test[[100]])
+
+
+trace_tmp <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01', full.names = TRUE)[trace_order] %>%
+  st_as_stars() %>%
+  st_set_dimensions('band', values = seq(-12, 0, 0.1), names = 'time') %>%
+ extract()
+  
+  
+  st_warp(dest = ref, use_gdal = TRUE, method = 'average') %>%
+  st_set_dimensions('band', values = seq(-12, 0, 0.1), names = 'time') %>%
+  setNames('tmp') %>%
+  mutate(tmp = set_units(tmp, 'degree_C'))
+```
+
+```{r}
+t1 <- rast('../../Data/CHELSA/CHELSA_TRACE_tasmax/CHELSA_TraCE21k_tasmax_7_20_V1.0.tif') %>%
+    crop(bbox) %>%
+  `/`(10) %>%
+  `-`(273)
+  
+t2 <- rast('../../Data/CHELSA/CHELSA_TRACE_tasmax/CHELSA_TraCE21k_tasmax_7_-40_V1.0.tif') %>%
+    crop(bbox) %>%
+  `/`(10) %>%
+  `-`(273)
+plot(t1 - t2)
+
+t3 <- rast('~/Downloads/MH_v1_5m/bio_5.tif') %>%
+  crop(bbox) %>%
+  `/`(10)
+
+t4 <-rast('~/Downloads/MH_v1_5m/bio_6.tif') %>%
+  crop(bbox)  %>%
+  `/`(10)
+
+t5 <- rast('~/Downloads/LH_v1_5m/bio_5.tif') %>%
+  crop(bbox) %>%
+  `/`(10)
+
+t6 <-rast('~/Downloads/LH_v1_5m/bio_6.tif') %>%
+  crop(bbox)  %>%
+  `/`(10)
+
+plot(t4 - t3)
+
+c(t3, t4) %>%
+  extract(long)
+
+dat_past <- long %>%
+  filter(`Calibrated median (BCE/CE)` < -2200) %>%
+  terra::extract(c(t3, t4), .) %>%
+  mutate(era = 'past') %>%
+  rename(bio5 = bio_5, bio6 = bio_6)
+
+dat_past2 <- long %>%
+  filter(`Calibrated median (BCE/CE)` > -2200) %>%
+  terra::extract(c(t5, t6), .) %>%
+  mutate(era = 'past') %>%
+  rename(bio5 = bio_5, bio6 = bio_6)
+
+ggplot(dat_past, aes(bio5, bio6)) +
+  stat_density2d( aes(fill = ..level..), color = 'orange', alpha = 0.2, geom = "polygon") +
+ stat_density2d(data = dat_past2, aes(fill = ..level..), geom = "polygon", alpha = 0.2, show.legend = FALSE)
+```
+
+# Discussion
+
+Climate/genetic correlations from [@gutaker2020] match these more or less.
+
+accumulated heat days (GDD) is a common measure for rice's thermal niche [@dalpoimguedes2016]. We consistently find GDD is not a good predictor of rice presences at this spatial and temporal scale. At this scale GDD is highly correlated with annual and seasonal temperature changes, while at the local scale its realized gdd also reflects things like local topography, solar radiation, and the particular timing of its planting and growing season initiation. We conclude, that at regional spatial scales, temperature is a better indicator of rice's thermal niche. It is an easier variable to calculate (and indeed GDD estimates are often themselves inferred from temperature cycles) in the past and future and is less dependent on particular cultural practices. Future work should work to connect these regional correlative models with local mechanistic ones, incorporating local terrain information and cultivar and cultural information about the timing and initiation of planting and the growing period.
+
+planting times
+
+> ering some of the world's most important rice areas with three distinct cropping seasons, such as in Bangladesh, where *aman* rice (main rainy season) is harvested in November-December; *boro* (dry season) in April-May; and *aus* in July-August. Parts of Vietnam also have three cropping seasons---winter-spring, spring-summer, and summer-autumn---and this is also the case in parts of China (early and late seasons for double-cropped rice areas; and middle for single-cropped rice areas) and India. https://www.nature.com/articles/sdata201774
+
+## Limitations
+
+spatial and temporal correspondence
+
+rice occurrence data
+
+modeling issues presence-background
+
+genetic variability
+
+unceratiny in radioarbon
+
+## Future work
+
+whole genus?
+
+# References
+
+# Supplement
+
+## testing qgam
+
+```{r}
+library(qgam)
+library(mgcViz)
+qtest <- c(resample(chelsa[[c("gst", 'gsp', 'gsl')]], rast(monfreda_area)), rast(monfreda_fraction)) %>%
+  as.data.frame()
+
+plot(slice_sample(qtest, n = 100000))
+mod <- qgam(extent ~ s(gst, k = 20, bs = 'ad', m = 10),  qu = 0.99, data = st_drop_geometry(dat))
+
+check(mod)
+plot(mod)
+
+predict(mod, tibble(gst = 30))
+library(gratia)
+smooth_estimates(mod) %>%
+  filter(est > 0) %>%
+  pull(gst) %>%
+  range()
+
+summary(mod)
+b <- getViz(mod)
+
+ plot( sm(b, 1) )+ l_fitLine(colour = "red")+ #+ l_rug(mapping = aes(x=gst, y=lyr.1), alpha = 0.8) +
+    l_ciLine(mul = 5, colour = "blue", linetype = 2) #+ 
+   # l_points(shape = 19, size = 1, alpha = 0.1) + theme_classic()
+ 
+ fit <- mqgamV(extent ~ s(gst, bs = 'cr', k = 10), data =st_drop_geometry(dat), qu = c(0.9, 0.95, 0.975, .99))
+ 
+ print(plot(fit, allTerms = TRUE), pages = 1)
+ plot(sm(fit[[4]], 1), nsim = 20) + l_ciLine() + l_fitLine() + l_simLine()
+
+
+mod <- gam(presence ~ s(gst, k = 20, bs = 'ad', m = 10),  family = binomial(), data = st_drop_geometry(dat))
+
+plot(mod, trans = plogis)
+plot(mod)
+```
+
+```{r}
+gam_test <-  st_drop_geometry(dat) %>%
+  mutate(presence = factor(presence, levels = c(0, 1))) %>%
+    mgcv::bam(presence ~ s(bio5, k = 10, bs = 'ad') +
+                s(bio1, k = 10, bs = 'ad') +
+                s(bio6, k = 10, bs = 'ad') +
+                s(bio11, k = 10, bs = 'ad') +
+                                s(bio10, k = 10, bs = 'ad')
+
+                , 
+        data = ., family = binomial(), select = TRUE)
+
+summary(gam_test)
+# https://stats.stackexchange.com/questions/30861/plotting-a-logistic-gam-model-in-r-why-is-the-scale-not-0-1
+plot(gam_test, trans = plogis, pages = 1, seWithMean = TRUE, shift = coef(gam_test)[1])
+plot(gam_test, trans = plogis, pages = 1, seWithMean = TRUE)
+
+
+gam.check(gam_test)
+test_pred <- predict(chelsa, gam_test, type = 'response')
+plot(test_pred)
+summary(gam_test)
+draw(gam_test, trans = plogis)
+
+smooth_estimates(gam_test) %>% transform_fun(fun = plogis) %>%
+  ggplot(aes(bio5, est)) +
+  geom_line()
+
+```
+
+```{r}
+smooth_estimates(gam_test) %>%
+  filter(est > 0) %>%
+  pull(bio5) %>%
+  range(na.rm = TRUE)
+```
+
+```{r}
+mod2 <- qgam(list(extent~s(gst, k = 10, bs = "cr"), ~ s(gst, k = 5, bs = 'cr')), qu = 0.80, data = st_drop_geometry(dat))
+
+mod3 <- qgam(list(extent~s(gst, k = 10, bs = "cr"), ~ s(gst, k = 5, bs = 'cr')), qu = 0.95, data = st_drop_geometry(dat))
+
+plot(mod2)
+```
+
+### Bayesian additive regression trees
+
+As a complement to traditional random forests, we also employ a Bayesian implementation of tree-based ensemble machine learning methods. Bayesian additive regression trees (BART) allow for flexible modeling through regularization. Flexible benefits of other boosting methods but without the need to tune several hyperparameters. It also works favorably for stepwise model selection, as the Bayesian implementation makes assessing variable importance straightforward.
+
+```{r}
+bart_mod <- parsnip::bart(mode = 'classification',
+                          trees = tune(),
+                          prior_terminal_node_coef = tune(),
+                          prior_terminal_node_expo = tune(),
+                          prior_outcome_range = tune()
+                          )
+```
+
+code for plotting distributions of multiple species simultaneously
+
+```{r}
+train %>%
+   filter(presence == 1) %>%
+  select(bio1:bio9, species) %>%
+  pivot_longer(bio1:bio9, names_to = 'bio') %>%
+  ggplot(aes(value)) +
+  geom_histogram()+
+  facet_grid(species~bio, scales = 'free')
+
+train %>%
+   filter(presence == 1) %>%
+  select(bio1:bio9, species) %>%
+  select(-c(bio14, bio17, bio19)) %>%
+  pivot_longer(bio1:bio9, names_to = 'bio') %>%
+  ggplot(aes(value)) +
+  geom_density(aes(fill = species), position = 'stack')+
+  scale_fill_brewer(palette = 'Spectral') +
+  facet_wrap(~bio, scales = 'free')
+
+train %>%
+   filter(presence == 0) %>%
+  select(bio1:bio9, species) %>%
+  select(-c(bio14, bio17, bio19)) %>%
+  pivot_longer(bio1:bio9, names_to = 'bio') %>%
+  ggplot(aes(value)) +
+  geom_density(aes(fill = species), position = 'stack')+
+  scale_fill_brewer(palette = 'Spectral') +
+  facet_wrap(~bio, scales = 'free')
+
+train %>%
+  filter(presence == 1)  %>%
+  ggplot(aes(bio1, bio12)) +
+  geom_point(aes(color= species), alpha = 0.1) +
+  scale_color_brewer(palette = 'Spectral') +
+  facet_wrap(~species)
+```
+
+### PCA
+
+```{r}
+#devtools::install_github("tidymodels/learntidymodels")
+train %>%
+  recipe(presence ~ .) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_pca(all_numeric_predictors(), threshold = 0.9) %>%
+  prep() %>%
+  learntidymodels::plot_top_loadings(component_number <= 6, n = 7) 
+
+
+train %>%
+  dplyr::select(-presence) %>%
+  prcomp(center = TRUE, scale. = TRUE) %>%
+  screeplot
+```
+
+```{r fig.width = 10, fig.height = 10}
+train[,-1] %>% as.matrix %>% cor() %>% corrplot::corrplot.mixed(order = 'AOE', lower = 'square', upper = 'number')
+```
+
+```{r}
+train %>%
+  recipe(presence ~ .) %>%
+  step_corr(all_numeric_predictors(), threshold = 0.8) %>%
+  prep()
+```
+
+```{r}
+library(applicable)
+predictors <- train[,-1]
+ap_mod <- apd_pca(predictors)
+ap_mod
+autoplot(ap_mod)
+
+ap_pred <- cmip6 %>%
+  as_tibble() %>%
+  score(ap_mod, .)
+
+# RCP8.5 is above 80 percentile warmer
+setValues(cmip6[[1]], ap_pred$distance_pctl) %>% plot()
+setValues(cmip6[[1]], ap_pred$PC1) %>% plot()
+setValues(cmip6[[1]], ap_pred$PC1_pctl) %>% plot()
+setValues(cmip6[[1]], ap_pred$distance) %>% plot()
+
+
+comp1 <- ap_mod$pcs$rotation[,1]
+comp1[order(abs(comp1), decreasing = TRUE)] %>% head(5)
+```
+
+This suggests it would be nice to use a larger spatial domain so that we're sampling a wider range of climates to help with extrapolation? Either way, PCs are unstable for prediction here so need to make a choice about using them to understand the model vs alternatives.
+
+### Envirem
+
+```{r}
+envirem_gdd5 <- read_stars('~/Downloads/Eurasia_holo_ccsm4_10arcmin_geotiff/holo_ccsm4_10arcmin_growingDegDays5.tif') %>%
+  st_set_crs(4326) %>%
+  st_crop(ref) %>%
+  setNames('GDD5')
+
+envirem_gdd52 <- read_stars('~/Downloads/Eurasia_holo_miroc_esm_5arcmin_geotiff/holo_miroc_esm_5arcmin_growingDegDays5.tif') %>%
+  st_set_crs(4326) %>%
+  st_crop(ref) %>%
+  setNames('GDD5')
+
+envirem_gdd53 <- read_stars('~/Downloads/Eurasia_current_5arcmin_geotiff/current_5arcmin_growingDegDays5.tif') %>%
+  st_set_crs(4326) %>%
+  st_crop(ref) %>%
+  setNames('GDD5')
+
+ggplot() + 
+  geom_stars(data = (envirem_gdd5 / 10) > 2900) +
+  geom_sf(data = coasts) +
+  scale_fill_viridis_d(option = 'magma', na.value = NA) +
+  theme_void()
+ggplot() + 
+  geom_stars(data = (envirem_gdd52 / 10) > 2900) +
+  geom_sf(data = coasts) +
+  scale_fill_viridis_d(option = 'magma', na.value = NA) +
+  theme_void()
+ggplot() + 
+  geom_stars(data = (envirem_gdd53 / 10) > 2900) +
+  geom_sf(data = coasts) +
+  scale_fill_viridis_d(option = 'magma', na.value = NA) +
+  theme_void()
+```
+
+## sacks
+
+Sacks, W.J., D. Deryng, J.A. Foley, and N. Ramankutty, 2010. Crop planting dates: an analysis of global patterns. Global Ecology and Biogeography 19: 607-620. doi:10.1111/j.1466-8238.2010.00551.x. plant.start = "start of planting window as day of year plant (same as above but in month/date format) plant.end = end of planting windwo, as day of year, harvest.start/end == start/end of harvest window
+
+could compare this to the with.max from ecocrop to look at changes in croping dates
+
+```{r}
+geodata::sacksCrops()
+rice_cal <- geodata::crop_calendar_sacks('rice (main season)', 'data/data-raw/') %>%
+  crop(bbox)
+rice_cal2 <- geodata::crop_calendar_sacks('rice (2nd season)', 'data/data-raw/') %>%
+  crop(bbox)
+plot(rice_cal)
+plot(rice_cal2)
+
+plot(rice_cal[[3]] - rice_cal[[1]])
+```
+
+## CNFA
+
+```{r}
+library(CENFA)
+mod.enfa <- enfa(x = as(chelsa[[2:20]], 'Raster'), s.dat = as(dat %>% mutate(presence = as.numeric(as.character(presence))) %>% filter(presence == 1), 'Spatial'), field = 'presence', progress = TRUE)
+mod.enfa
+scatter(mod.enfa, GLcenfa(x = as(chelsa[[2:20]], 'Raster')))
+
+mod.cnfa <- cnfa(x = as(chelsa[[2:20]], 'Raster'), s.dat = as(dat %>% mutate(presence = as.numeric(as.character(presence))) %>% filter(presence == 1), 'Spatial'), field = 'presence', progress = TRUE)
+mod.cnfa
+scatter(mod.cnfa,  GLcenfa(x = as(chelsa[[2:20]], 'Raster')))
+s.map <- sensitivity_map(mod.cnfa)
+plot(s.map)
+ s.map %>% st_as_stars %>% st_as_sf %>% st_centroid %>% plot
+dep <- departure(x = as(chelsa[[2:20]], 'Raster'), y = as(cmip6, 'Raster'), s.dat = as(dat %>% mutate(presence = as.numeric(as.character(presence))) %>% filter(presence == 1), 'Spatial'), field = 'presence', progress = TRUE)
+dep
+
+e.map <- exposure_map(dep)
+plot(e.map)
+
+e.map %>% st_as_stars %>% st_as_sf %>% st_centroid %>% plot
+```
