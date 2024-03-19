@@ -4,4 +4,6 @@ Manuscript available [here](https://github.com/nick-gauthier/rice/blob/main/main
 
 Data preprocessing and computationally intensive analyses available [here](https://github.com/nick-gauthier/rice/blob/main/methods.qmd).
 
+Supplementary analyses and older versions of the main analyses are archived [here](https://github.com/nick-gauthier/rice/blob/main/extras/) temporarily, but are subject to change and reorganization.
+
 
