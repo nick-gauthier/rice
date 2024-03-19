@@ -205,62 +205,65 @@ Between roughly 5000-4000 BP, rice spread both north- and eastward in China [@la
 #| fig-width: 9
 #| fig-height: 8
 #| cache: true
-#| fig-cap: Archaeological remains of rice and corresponding temperature distributions throughout the Holocene. A.) Archaeological records of rice distribution over time. See Methods for archaeological data sources. Time units are thousands of years before present (1950 CE). B.) The Holocene thermal niche of rice across millenia. Rice occurrence data were derived from sources listed in the Methods section. Mean annual temperature and maximum temperature of the warmest month are derived from CHELSA-TRACE V1.2 (Karger et al. 2022). 
+#| fig-cap: Archaeological remains of rice and corresponding temperature distributions throughout the Holocene. A.) Archaeological records of rice distribution over time. See Methods for archaeological data sources. Time units are thousands of years before present (1950 CE). B.) Kernel density estimates of the thermal niche by millennium, with raw data points indicated in black and contemporary rice thermal limits in red. Rice occurrence data were derived from sources listed in the Methods section. Temperature data are derived from CHELSA-TRACE V1.2 (Karger et al. 2022). 
 
-arch_trace <- readRDS(here('data/data-derived/arch_trace.rds'))
+arch_trace <- readRDS(here('data/data-derived/arch_trace.rds')) |>
+  mutate(mil = (med_age - med_age %% 1000) / 1000 + 1) |>
+  filter(between(mil, -9, -2)) |>
+  mutate(mil = as.factor(mil))
 
 arch_map <- arch_trace %>%
-  mutate(age = med_age) %>%
-  filter(age < -2000) %>%
-  mutate(age = if_else(age < -9000, -9001, age)) %>%
-  mutate(mil = factor((age - age %% 1000) / 1000 + 1, levels = c(as.character(-9:-2)))) %>%
-  #arrange(mil) %>%
   ggplot() +
   geom_sf(data = countries, color = 'white') +
-  geom_sf(size = 1, alpha = 0.75) + #, aes(color = type)) +
+  geom_sf(size = 1, alpha = 0.75) + 
   facet_wrap(~mil, ncol = 4)
 
 arch_dens_mat <- arch_trace %>%
-     # filter(time > -10000) %>%
-  group_by(id) %>%
-  summarise(MAT = mean(MAT), time = mean(time)) %>%
-   mutate(mil = (time - time %% 1000) /1000 + 1) %>%
- # mutate(mil = if_else(mil < -8, -9, mil)) %>%
-  filter(between(mil, -8, -2)) %>%
-      mutate(mil = as.factor(mil)) %>%
-  ggplot(aes(MAT,  factor(mil))) +
+  ggplot(aes(MAT, mil)) +
   scale_y_discrete(limits = rev) +
-  geom_density_ridges(aes(fill = mil), panel_scaling = TRUE, scale = 2, alpha = 0.5, jittered_points = TRUE, point_alpha = 0.25, point_size = 0.5) +
+  geom_density_ridges(aes(fill = mil), 
+                      panel_scaling = TRUE, 
+                      scale = 2, 
+                      alpha = 0.5, 
+                      jittered_points = TRUE, 
+                      point_alpha = 0.25, 
+                      point_size = 0.5) +
   labs(y = 'Millennium BP', x = 'Mean annual temperature') +
   geom_vline(xintercept = as.numeric(bio1_limit), linetype = 2, color = 'red') +
   scale_fill_brewer(palette = 'Spectral', guide = 'none')
 
 arch_dens_tmax <- arch_trace %>%
-    #  filter(time > -10000) %>%
-  group_by(id) %>%
-  summarise(tmax = mean(tmax), time = mean(time)) %>%
-   mutate(mil = (time - time %% 1000) /1000 + 1) %>%
-  filter(between(mil, -8, -2)) %>%
-    mutate(mil = as.factor(mil)) %>%
-  ggplot(aes(tmax,  factor(mil))) +
+  ggplot(aes(tmax, mil)) +
   scale_y_discrete(limits = rev) +
-  geom_density_ridges(aes(fill = mil), panel_scaling = TRUE, scale = 2, alpha = 0.5, jittered_points = TRUE, point_alpha = 0.25, point_size = 0.5) +
+  geom_density_ridges(aes(fill = mil), 
+                      panel_scaling = TRUE, 
+                      scale = 2, 
+                      alpha = 0.5, 
+                      jittered_points = TRUE, 
+                      point_alpha = 0.25, 
+                      point_size = 0.5) +
   labs(y = 'Millennium BP', x = 'Max temp. of the warmest month') +
-    geom_vline(xintercept = as.numeric(bio5_limit), linetype = 2, color = 'red') +
+  geom_vline(xintercept = as.numeric(bio5_limit), linetype = 2, color = 'red') +
   scale_fill_brewer(palette = 'Spectral', guide = 'none')
 
 arch_dens_twarm <- arch_trace %>%
-   mutate(mil = (time - time %% 1000) /1000 + 1) %>%
-  filter(between(mil, -8, -2)) %>%
-    mutate(mil = as.factor(mil)) %>%
-  ggplot(aes(twarm,  factor(mil))) +
+  ggplot(aes(twarm, mil)) +
   scale_y_discrete(limits = rev) +
-  geom_density_ridges(aes(fill = mil), panel_scaling = TRUE, scale = 2, alpha = 0.5, jittered_points = TRUE, point_alpha = 0.25, point_size = 0.5) +
+  geom_density_ridges(aes(fill = mil), 
+                      panel_scaling = TRUE, 
+                      scale = 2, 
+                      alpha = 0.5, 
+                      jittered_points = TRUE, 
+                      point_alpha = 0.25, 
+                      point_size = 0.5) +
   labs(y = 'Millennium BP', x = 'Max temp. of the warmest quarter') +
-    geom_vline(xintercept = as.numeric(bio10_limit), linetype = 2, color = 'red') +
+  geom_vline(xintercept = as.numeric(bio10_limit), linetype = 2, color = 'red') +
   scale_fill_brewer(palette = 'Spectral', guide = 'none')
 
-arch_map / (arch_dens_mat + arch_dens_tmax + arch_dens_twarm + plot_layout(guides = 'collect')) + plot_annotation(tag_levels = 'A') + plot_layout(heights = c(2, 1))
+arch_map / 
+  (arch_dens_mat + arch_dens_tmax + arch_dens_twarm + plot_layout(guides = 'collect')) +
+  plot_annotation(tag_levels = 'A') + 
+  plot_layout(heights = c(2, 1))
 ```
 
 These repeated instances of rice’s diversification and shifting ranges throughout its history primarily reflect genetic and cultural adaptations to cooler temperatures and shorter growing seasons. However, its upper temperature limits have remained a relatively constant barrier to dispersal. No rice remains are recovered from regions experiencing greater than 28℃ MAT (@fig-arch-kde B), in spite of warmer conditions overall. These results are robust to uncertainty in both the dating of these archaeological remains as well as spatial biases in archaeological site preservation and recovery (Supplementary Figure @fig-bootstrap a). Out of our dataset of `r nrow(arch_trace)` sites, only seven, located in the Thar desert in Pakistan (a highly arid environment not adapted to rice cultivation), have rice in areas that experienced a TMAX of greater than 40.5℃ (@fig-arch-kde C). These extreme outliers appear to be the result of dating uncertainty (Supplementary Figure @fig-bootstrap b), as well as long-distance trade in rice rather than local cultivation. Regardless, this period of higher temperatures was a relatively extreme century, during which historical and archaeological evidence attest to significant cultural disruption in the impacted regions (Supplementary Figure @fig-erb-recon).
@@ -341,7 +344,7 @@ irri_occ %>%
 
 ```{r}
 #| label: fig-future-maps
-#| fig-cap: Land areas projected to exceed each temperature threshold by 2071-2100 from CMIP6 simulations, downscaled by ISIMIP and CHELSA (Karger et al. 2022). Color intensity corresponds to the count of ensemble members surpassing the given threshold at each grid cell.
+#| fig-cap: Land areas projected to exceed each temperature threshold by 2071-2100 from CMIP6 simulations, downscaled by ISIMIP and CHELSA (Karger et al. 2022). Color intensity corresponds to the count of climate model ensemble members surpassing the given threshold at each grid cell.
 #| cache: true
 #| fig-width: 11.5
 #| fig-height: 8
@@ -747,4 +750,3 @@ eof / amp + plot_layout(heights = c(2,1))
 ![](figures/mat_arch_1d.png)
 
 # References
-
