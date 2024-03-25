@@ -547,11 +547,12 @@ quants_mod_gbif <- occ_dat %>%
 left_join(quants_mod, quants_mod_monfreda, by = 'quantile') %>%
   left_join(quants_mod_gbif, by = 'quantile') %>%
   units::drop_units() %>% # do we want celsius units?
-  mutate(quantile = set_units(quantile * 100, '%'))%>% 
-  setNames(c('Quantile', rep(c('Bio1', 'Bio5', 'Bio10'), 3))) %>%
+  mutate(quantile = set_units(quantile * 100, '%')) %>% 
+  select(quantile, bio1.x, bio1.y, bio1, bio5.x, bio5.y, bio5, bio10.x, bio10.y, bio10) %>%
+  setNames(c('Quantile', rep(c('IRRI', 'Monfreda', 'GBIF'), 3))) %>%
   kableExtra::kbl() %>%
   kableExtra::kable_styling('striped') %>%
-  kableExtra::add_header_above(tibble(names = c('', 'IRRI', 'Monfreda', 'GBIF'), spans = c(1,3,3,3))) # %>%
+  kableExtra::add_header_above(tibble(names = c('', 'Mean Annual Temperature', 'Max Temp. of the Warmest Month', 'Max Temp. of the Warmest Quarter'), spans = c(1,3,3,3)))  #%>%
   #kableExtra::save_kable('data/data-derived/quantiles_table.png')
 ```
 
