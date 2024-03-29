@@ -24,9 +24,6 @@ bbox_world <- raster::extent(-130, 155, -40, 60)  # global
 asia_bbox_sf <- st_bbox(c(xmin = 60, xmax = 150, ymin = -20, ymax = 50), crs = 4326)
 world_bbox_sf <- st_bbox(c(xmin = -130, xmax = 155, ymin = -40, ymax = 60), crs = 4326)
 
-chelsa_mask <- terra::rast('../../Data/CHELSA_V2_bio_clim/CHELSA_pet_penman_mean_1981-2010_V.2.1.tif') %>%
-      terra::crop(bbox_world)
-
 theme_set(theme_bw())
 
 # get country boundaries shapefile for plotting
@@ -47,64 +44,141 @@ available_cores <- parallel::detectCores(logical = TRUE)
 
 # Methods
 
-## Climate data
+## Climate Data
 
-### Contemporary climate
+We used high-resolution gridded climate data from version 2.1 of the CHELSA product [@karger2017, @Karger2018, @brun2022, @brun]. CHELSA incorporates bias-corrected outputs from the ERA-5 reanalysis with high-resolution terrain data using mechanistic relationships between local climate and terrain. Compared to other global gridded climate products, CHELSA offers superior performance in mountainous regions, and its reliance on high-quality reanalysis data instead of raw weather station data ensures greater accuracy and internal consistency among climate variables.
 
-We used high-resolution, gridded climate data from the CHELSA [@karger2017, @Karger2018, @brun2022]. CHELSA incorporates bias-corrected outputs from the ERA-5 reanalysis with high-resolution terrain data using mechanistic relationships between local climate and terrain. Compared to other global gridded climate products, CHELSA offers superior performance in mountainous regions. Its reliance on high-quality reanalysis data, instead of raw weather station data, ensures greater accuracy and internal consistency among variables.
+### Contemporary Climate Data
 
-For present day observed climate we used the CHELSA V2.1 product spanning the period 1980-2010 at a 1km resolution. We further aggregated the native 1km data to 5km and 10km grids to assess the sensitivity of our results to the scale of the analysis, given the variable spatial support of the contemporary rice extent data. In all cases we used the standard 19 Bioclim variables used in ecological niche modeling studies, derived from monthly climatologies of precipitation and minimum and maximum temperature, which collectively represent annual means, extremes, and seasonality across the annual cycle.
+For present-day observed climate, we used the CHELSA V2.1 product spanning the period 1981-2010 at a 1km resolution. We further aggregated the native 1km data to 5km and 10km grids to assess the sensitivity of our results to the scale of the analysis, given the variable spatial support of the contemporary rice extent data. In all cases we used standard temperature indicators used in ecological niche modeling studies [@brun], derived from monthly climatologies of minimum and maximum temperature, which collectively represent annual means, monthly extremes, and seasonality.
 
-Past data were derived from the CHELSA-TRACE product, a downscaled version of TRACE-21k simulation using the CCSM3 climate model spanning the last 21,000 years at 100 year intervals. This product uses the older CHELSA V1.2 algorithm, along with a trend-preserving bias correction and topographic correction for shifting ice sheets across the deglacial period. Future downscaled outputs from CMIP6 processed by the Inter-Sectoral Model Intercomparison Project (ISMIP) with trend-preserving bias correction and bilinearly interpolated to CHELSA V2.1 basemap.
+First we download the CHELSA data if they are not already present in the data/ folder.
 
-```{r load-chelsa, cache = TRUE}
-# this isn't portable!
-chelsa_files <- list.files('../../CHELSA_V2_bio_clim', 
-                           full.names = TRUE)[c(1, 2:20, 31:33, 40:46, 48:50, 52:59, 67:70)]
+```{r download-chelsa}
+# download contemporary CHELSA temperature rasters
+url_base <- 'https://os.zhdk.cloud.switch.ch/envicloud/chelsa/chelsa_V2/GLOBAL/climatologies/1981-2010/bio/'
+filenames <- c('CHELSA_bio1_1981-2010_V.2.1.tif', 
+               'CHELSA_bio5_1981-2010_V.2.1.tif', 
+               'CHELSA_bio10_1981-2010_V.2.1.tif',
+               'CHELSA_pet_penman_mean_1981-2010_V.2.1.tif') # PET used as land mask
 
-chelsa_names <- chelsa_files %>% 
-  str_split('_') %>% 
-  purrr::map(~.x[5:7]) %>%
-  purrr::map(~if_else(.x %in% c("1981-2010", "V.2.1.tif"), NA, .x)) %>%
-  purrr::map_chr(str_flatten, collapse = '_', na.rm = TRUE)
+walk(filenames, function(x) {
+  target_file <- here('data/data-raw', x)
+  if (!file.exists(target_file)) {
+    download.file(paste0(url_base, x), target_file)
+  }
+})
+```
 
-chelsa_1km <- terra::rast(chelsa_files) %>%
-  setNames(chelsa_names) %>%
-  .[[c('bio1', 'bio5', 'bio10')]]
+Then read them in using `terra::rast()`. 
+```{r load-chelsa}
+chelsa_1km <- here('data/data-raw', filenames[-4]) |>
+  rast() |>
+  setNames(c('bio1', 'bio5', 'bio10'))
 
+# get the PET map to use as a land mask on the CHELSA grid
+chelsa_mask <- here('data/data-raw', filenames[4]) |>
+  rast() %>%
+  crop(bbox_world)
+```
+
+Regrid to 5 and 10km resolution.
+```{r regrid-chelsa}
 chelsa_5km <- aggregate(chelsa_1km, fact = 5, cores = available_cores, na.rm = TRUE)
 chelsa_10km <- aggregate(chelsa_1km, fact = 10, cores = available_cores, na.rm = TRUE)
+```
 
+Make additional copies cropped to Asia.
+```{r}
 chelsa_1km_asia <- crop(chelsa_1km, bbox)
 chelsa_5km_asia <- crop(chelsa_5km, bbox)
 chelsa_10km_asia <- crop(chelsa_10km, bbox)
-
-
-# stars version
-chelsa_obs <- list.files('../../Data/CHELSA_V2_bio_clim', full.names = TRUE, pattern = '*_bio1_|_bio10_|_bio5_*') %>%
-  read_stars(along = 'variable') %>%
-  st_set_dimensions('variable', values = c('bio1', 'bio10', 'bio5'))
-
 ```
 
-```{r}
-# check the range of values at different resolutions and extents. the upper temperatures don't appear to be very sensitive to resolution, which is good
-list(chelsa_1km, chelsa_5km, chelsa_10km, chelsa_1km_asia, chelsa_5km_asia, chelsa_10km_asia) %>%
-  map(minmax)
+Check the range of values at different resolutions and extents. The upper temperatures don't appear to be very sensitive to resolution, which is good.
+```{r eval = FALSE}
+list(chelsa_1km, 
+     chelsa_5km, 
+     chelsa_10km, 
+     chelsa_1km_asia, 
+     chelsa_5km_asia, 
+     chelsa_10km_asia) %>%
+  map(minmax, compute = TRUE)
 ```
 
-```{r}
+```{r eval = FALSE}
+# may delete?
 writeCDF(chelsa_5km, here('data/data-derived/chelsa_5km.nc'), overwrite = TRUE, zname = 'var')
 writeCDF(chelsa_10km, here('data/data-derived/chelsa_10km.nc'), overwrite = TRUE, zname = 'var')
 writeCDF(chelsa_5km_asia, here('data/data-derived/chelsa_5km_asia.nc'), overwrite = TRUE, zname = 'var')
 writeCDF(chelsa_10km_asia, here('data/data-derived/chelsa_10km_asia.nc'), overwrite = TRUE, zname = 'var')
 ```
 
+## Paleoclimate reconstructions
+
+
+Past climate data were derived from the CHELSA-TraCE21k product, a downscaled version of TraCE-21k simulation of the CCSM3 climate model spanning the last 21,000 years, at 100 year intervals [@karger2023, @He2011]. This product uses the older CHELSA V1.2 algorithm, along with a trend-preserving bias correction and topographic correction for shifting ice sheets across the deglacial period. 
+
+```{r chelsa-trace}
+# this is nor portable nor easily downloadable, will have to do something to enable reproducibility
+trace_order <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01', 
+                          full.names = FALSE) %>%
+  str_sub(23, -10) %>% 
+  as.numeric() %>% 
+  order()
+
+trace_tmp <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01', 
+                        full.names = TRUE)[trace_order] %>%
+  read_stars(along = 'time')
+
+trace_tmax <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio05', 
+                         full.names = TRUE)[trace_order] %>%
+  read_stars(along = 'time') 
+
+trace_twarm <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio10', 
+                         full.names = TRUE)[trace_order] %>%
+  read_stars(along = 'time') 
+
+chelsa_trace <- c(trace_tmp, trace_tmax, trace_twarm) %>%
+  st_set_dimensions('time', values = seq(-12, 0, 0.1) * 1000, names = 'time') %>%
+  setNames(c('MAT', 'tmax', 'twarm'))
+
+# test of using vsicurl to get data w/out download
+test <- rast('/vsicurl/https://os.zhdk.cloud.switch.ch/envicloud/chelsa/chelsa_V1/chelsa_trace/bio/CHELSA_TraCE21k_bio01_-100_V1.0.tif')
+plot(test)
+```
+
+```{r erb, eval = FALSE}
+# may not be necessary
+erb <- here('data/data-raw/holocene_reconstruction.nc') %>% 
+  read_ncdf(var = 'recon_tas_ens') %>%
+  st_set_crs(4326) %>%
+  st_crop(asia_bbox_sf)
+
+times <- st_get_dimension_values(erb, 'ages')
+
+floor_cen <- function(value){ return(value - value %% 100) }
+
+centuries <- floor_cen(1949.5 - times)
+erb_decadal <- erb %>%  
+  as('SpatRaster') %>%
+  rotate() %>%
+  st_as_stars(crs = 4326) %>%
+  st_set_dimensions('band', names = 'time', 
+                    values = -1 * (times + 0.5)) %>%
+  setNames('tas') %>%
+  st_crop(asia_bbox) %>%
+  mutate(tas = set_units(tas, degree_c))
+```
+
+
+
 ### Future climate projections
 
-We acquired downscaled projections of future climate from the CMIP6 archive, also downscaled using the CHELSA algorithm [@brun2022].
+Future climate model ensembles were derived from phase six of the Coupled Model Intercomparison Project (CMIP6) [@eyring2016], using the subset of bias-corrected models and scenarios used in phase 3b of the Inter-Sectoral Impact Model Intercomparison Project (ISIMIP) [@lange2019], bilinearly interpolated to the CHELSA V2.1 basemap using the delta change approach [@brun, @brun2022].
 
 ```{r}
+#delete?
 cmip6_26 <- list.files('~/Dropbox (UFL)/CHELSA_CMIP6/ssp126/', full.names = TRUE) %>%
   terra::rast() %>%
   setNames(chelsa_names[2:20]) %>%
@@ -132,49 +206,16 @@ writeCDF(cmip6_70, here('data/data-derived/chelsa_cmip6_70_5km.nc'),
          overwrite = TRUE, zname = 'var')
 writeCDF(cmip6_26, here('data/data-derived/chelsa_cmip6_26_5km.nc'), 
          overwrite = TRUE, zname = 'var')
-
-model_names <- c('gfdl', 'ipsl', 'mpi', 'mri', 'ukesm')
-ssp_names <- c('ssp126', 'ssp370', 'ssp585')
-
-cmip6 <-  model_names %>%
-  map(paste,  ssp_names, sep = '/' ) %>%
-  map_depth(1, ~paste0('~/Dropbox (UFL)/Data/CHELSA/CMIP6/2071-2100/', .x, '/bio') %>% as.list()) %>%
-  map_depth(2, ~list.files(.x, full.names = TRUE, pattern = '*_bio1_|_bio5_|_bio10_*')) %>%
-  map_depth(2, ~read_stars(.x) %>%
-     setNames(c('bio1', 'bio10', 'bio5')) %>%
-     st_redimension()) %>%
-  map(~do.call('c', .x) %>% 
-        setNames(c('SSP1-2.6', 'SSP3-7.0', 'SSP5-8.5')) %>% 
-        st_redimension()) %>%
-  do.call('c', .) %>%
-  setNames(model_names) %>%
-  st_redimension() %>%
-  st_set_dimensions(names = c('x', 'y', 'variable', 'ssp', 'model')) %>%
-  setNames('temperature') %>%
-  .[countries]
-
-
-cmip_downsample <- st_downsample(cmip6, 5)
-plot(cmip_downsample[,,,1,1,1])
-saveRDS(cmip_downsample, 'cmip6_downsampled.rds')
-object.size(cmip_downsample)
-  # mutate(temperature = set_units(temperature, degree_C))
-
-#write_mdim(t3, 'cmip_test.nc')
-#test5 <- read_ncdf('cmip_test.nc', var = 'temperature', crs = 4326, eps = 0.00833333333)
-#test6 <- read_stars('cmip_test.nc')
 ```
 
-```{r}
-pairs(chelsa_5km_asia, maxcells = 100000)
-pairs(chelsa_1km_asia, maxcells = 100000)
-```
 
 #### Country level summaries
 
 ```{r}
 countries_sub <- countries %>% 
-  filter(name %in% c('China', 'India', 'Indonesia', 'Bangladesh', 'Vietnam', 'Thailand', 'Philippines', 'Myanmar', 'Pakistan', 'Japan', 'South Korea', 'Cambodia', 'Laos', 'Nepal', 'Malaysia'))
+  filter(name %in% c('China', 'India', 'Indonesia', 'Bangladesh', 'Vietnam', 
+                     'Thailand', 'Philippines', 'Myanmar', 'Pakistan', 'Japan', 
+                     'South Korea', 'Cambodia', 'Laos', 'Nepal', 'Malaysia'))
          
 obs_test <- chelsa_obs %>%
   split('variable') %>%
@@ -253,107 +294,6 @@ saveRDS(df, 'data/data-derived/country_stats.rds')
 
 ```
 
-```{r}
-library(exactextractr)
-test_fut <- c(chelsa[['bio1']],cmip6_26[['bio1']], cmip6_70[['bio1']], cmip6_85[['bio1']]) %>%
-  setNames( c('obs', 'ssp1', 'ssp3', 'ssp5'))
-plot(test_fut)
-areas <- terra::cellSize(test_fut, unit = 'km')
-test2 <- (areas * (test_fut > 27.5)) %>%
-  setNames( c('obs', 'ssp1', 'ssp3', 'ssp5'))
-plot(test2)
-test3 <- exact_extract(test2, countries, 'sum', append_cols = c('admin', 'pop_est'))
-test4_areas <- exact_extract(areas, countries, 'sum', append_cols = 'admin')
-tab <- test4_areas %>%
-  rename(area = sum) %>%
-  left_join(test3) %>%
-  pivot_longer(sum.obs:sum.ssp5) %>%
-  mutate(percent = round(value / area * 100),
-         name = str_sub(name, 5)) %>%
-  select(admin, pop_est, name, percent) %>%
-  pivot_wider(names_from = name, values_from = percent) %>%
-  filter(ssp5 > 0, pop_est > 100) %>%
-  arrange(-as.numeric(pop_est), -ssp5) %>%
-  select(-pop_est) %>%
-  rename(Country = admin)
-
-knitr::kable(tab)
-
-admin_summary <- (future_bio1 > 27.5) %>%
-  st_as_stars() %>%
-  aggregate(countries, fun = function(x) sum(x == TRUE, na.rm = TRUE) / length(na.omit(x)))
-
-plot(countries)
-
-tab %>%
-  pivot_longer(-Country) %>%
-  ggplot(aes(name, value, group = Country, color = Country)) + geom_line()
-```
-
-### Paleoclimate reconstructions
-
-Including the global temperature reconstruction of [@10.5194/cp-18-2599-2022; \@10.5281/zenodo.6426332].
-
-```{r erb}
-erb <- here('data/data-raw/holocene_reconstruction.nc') %>% 
-  read_ncdf(var = 'recon_tas_ens') %>%
-  st_set_crs(4326) %>%
-  st_crop(asia_bbox_sf)
-
-times <- st_get_dimension_values(erb, 'ages')
-
-floor_mil   = function(value){ return(value - value %% 1000) }
-floor_cen   = function(value){ return(value - value %% 100) }
-
-centuries <- floor_cen(1949.5 - times)
-mil <- floor_mil(1949.5 - times)
-
-erb_millennia <- erb %>%  
-  as('SpatRaster') %>%
-  rotate() %>%
-  tapp(mil, fun = mean) %>%
-  st_as_stars(crs = 4326) %>%
-  st_set_dimensions('band', names = 'time', 
-                    values = unique(mil) / 1000 - 1) %>%
-  setNames('tas') %>%
-  st_crop(asia_bbox_sf) %>%
-  mutate(tas = set_units(tas, degree_c)) %>%
-  filter(time >= -8)
-
-erb_decadal <- erb %>%  
-  as('SpatRaster') %>%
-  rotate() %>%
-  st_as_stars(crs = 4326) %>%
-  st_set_dimensions('band', names = 'time', 
-                    values = -1 * (times + 0.5)) %>%
-  setNames('tas') %>%
-  st_crop(asia_bbox) %>%
-  mutate(tas = set_units(tas, degree_c))
-```
-
-```{r}
-trace_order <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01', 
-                          full.names = FALSE) %>%
-  str_sub(23, -10) %>% 
-  as.numeric() %>% 
-  order()
-
-trace_tmp <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01', 
-                        full.names = TRUE)[trace_order] %>%
-  read_stars(along = 'time')
-
-trace_tmax <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio05', 
-                         full.names = TRUE)[trace_order] %>%
-  read_stars(along = 'time') 
-
-trace_twarm <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio10', 
-                         full.names = TRUE)[trace_order] %>%
-  read_stars(along = 'time') 
-
-chelsa_trace <- c(trace_tmp, trace_tmax, trace_twarm) %>%
-  st_set_dimensions('time', values = seq(-12, 0, 0.1) * 1000, names = 'time') %>%
-  setNames(c('MAT', 'tmax', 'twarm'))
-```
 
 ### Loading Preprocessed data
 
@@ -365,30 +305,23 @@ writeCDF(cmip6_26, here('data/data-derived/chelsa_cmip6_26_5km.nc'),
          overwrite = TRUE, zname = 'var')
 ```
 
-## 
 
 ## Contemporary Rice Distribution Data
 
-We collected rice occurrence data from a variety of sources combining information from satellites, administrative statistics, and herbarium collections. 
-
--   Satellite-based estimates of lowland rice extent in Asia (Nelson and Gumma 2015). This dataset employs high resolution (500m) presence absences, and has relatively uniform sampling across temperate and tropical regions that is more objective than spatially biased occurrence records. Drawbacks with this dataset include its limited extent in east and southeast Asia and confusion with intercropped wheat in northeast China. Issues also exist with this dataset in its ability to distinguish between wetlands and rice cultivation in Indonesia.
-
--   Estimates of paddy rice harvested areas from Monfreda et al (2008) in the year 2,000. This dataset combines satellite-based estimates of cropland with subnational statistics for rice harvested areas. It employs geospatial cropland maps to disaggregate harvest area and yield census data and has a global extent at \~10km resolution. Very commonly used dataset and good for what it is given its global extent. Some issues in countries without fine-grained administrative data at subnational level, leads to some overly smoothed areas in, e.g. Laos and Kazakhstan. Use of harvested area as metric can be misleading in regions with multiple annual harvests, which are double (or triple) counted. Also compared to more up-to-date versions of the same data using better subnational statistics from Ray et al.
-
--   SPAM data are high-quality downscaled crop maps that combine census data, satellites, and expert models. These use thermal tolerances from the UN GAEZ system so are not entirely independent from the climate data used elsewhere, so these data are given less weight in spite of their global coverage and ability to distinguish between different farming systems (e.g. rainfed vs irrigated).
-
--   Geolocated occurrence records for rice and its wild progenitor from GBIF, the Oryzabase, and other sources. These are point-based occurrence records, typically associated with herbarium specimens or germplasm samples from genomic studies. As these are directly identified occurrence records they are in general more reliable than area-averaged crop occurrences inferred from satellites and subnational statistics. However, occurrence data are more prone to spatial sampling bias and data access, for example with areas such as China having considerably less sampling effort than neighboring countries in spite of their similar extents. These data also tend to sample upland varieties of rice more reliably at the expense of larger paddy fields.
+We collected rice occurrence data from a variety of sources combining information from satellites, administrative statistics, and herbarium collections. Our goal was to assess the sensitivity of our results to various modes of data collection, sampling, spatiotemporal scale, and other potential sources of bias.
 
 ### Point Occurrences
 
-#### GBIF
+Geolocated, point-based occurrence records for rice and its wild progenitor synthesized from previous studies [@civán2018; @yang2022; @ramirez-villegas2022], originally sourced from GBIF, the Rice Haplotype Map project, and other datasets based on herbarium specimens or germplasm samples from international genebank databases. Given their direct identification, these occurrence records generally offer greater reliability than area-averaged crop occurrences derived from satellites and sub-national statistics. Nonetheless, they are susceptible to spatial sampling bias. For instance, regions like China are underrepresented in GBIF in terms of sampling effort compared to neighboring countries with similar geographical extent, and herbarium collections may more accurately sample upland rice varieties at the expense of larger paddy fields. After creating the full combined datasets, geolocations were checked for anomalous entries then thinned to a uniform grid to minimize irregular spatial sampling.
 
-*Note, also have option for custom gbif call with filtering.*
+We extracted the contemporary CHELSA climate data at each set of occurrence points for each data type to calculate temperature distributions and quantiles. We explored various combinations of grid/point resolution for the climate and occurrence datasets from 1-10km, but found this did not impact the upper temperature threshold estimates.
 
-source [@yangGlobalNicheShifts2022] via GBIF
+#### GBIF/Herbaria Records
 
-```{r}
+```{r gbif}
 occ <- here('data/data-raw/Datasets of occurrence records of rice and its wild progenitor.xlsx')
+ 
+if (!file.exists(occ)) download.file('https://figshare.com/ndownloader/files/33903758', occ)
 
 rufipogon <- read_excel(occ, skip = 6715) %>%
   select(-x, -`the wild progenitor`) %>%
@@ -407,77 +340,63 @@ ggplot() +
   geom_sf(data = countries_world, color = 'white') +
   geom_sf(data = sativa, size = 0.1, color = 'black') +
   geom_sf(data = rufipogon, color = 'green', size = 0.1) +
-  labs(title = "Rice occurence data", subtitle = "O. sativa (black), O. rufipogon (green)", caption = 'source: GBIF, CHV') +
-  #geom_sf(data = arch, color = 'red', size = 0.11) +
-  theme_minimal()
+  labs(title = "Rice occurence data", 
+       subtitle = "O. sativa (black), O. rufipogon (green)", 
+       caption = 'source: Yang et al. 2022, via GBIF, CHV') 
 ```
 
-#### Oryzbase and others
+#### Genbank accessions
 
-The GBIF occurrences are undersampled in China, so we can supplement them with point accession from Oryzabase. These data are biased because sativas only come from China and rufipogon does not!
-
-source: [@civanRoleGeneticIntrogression2018], ultimately from the Rice Haplotype Map Project: <http://202.127.18.>221/RiceHap3/
 
 ```{r}
-gen_occs <- read_excel('data/data-raw/12862_2018_1180_MOESM1_ESM.xls', skip = 2) %>%
+gen_occs_data <- here('data/data-raw/12862_2018_1180_MOESM1_ESM.xls')
+if (!file.exists(gen_occs_data)) download.file('https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5913815/bin/12862_2018_1180_MOESM1_ESM.xls', gen_occs_data)
+
+gen_occs <- gen_occs_data %>%
+  read_excel(skip = 2) %>%
   mutate(lat = parse_double(`Latitude*†`),
          lon = parse_double(`Longitude*†`),
-         species = `Species/ecotype*`) %>%
+         type = `Species/ecotype*`) %>%
   filter(!(is.na(lon) | is.na(lat))) %>%
   st_as_sf(coords = c('lon', 'lat'), crs = 4326) %>%
-  select(species) %>%
-  filter(species %in% c('indica', 'O. rufipogon', 'temperate japonica'))
+  select(type) %>%
+  filter(type %in% c('indica', 'O. rufipogon', 'temperate japonica'))
 
 ggplot() +
-  geom_sf(data = gen_occs, aes(color = species),
+  geom_sf(data = countries, color = 'white') +
+  geom_sf(data = gen_occs, aes(color = type),
           size = 1) +
- # scale_color_brewer(palette = 'Spectral') +
-  geom_sf(data = coasts, color = 'black') 
+  labs(title = "Rice occurence data", 
+       subtitle = "From genetic assessions", 
+       caption = 'source: Civáň and Brown 2018')
 ```
 
 #### Combined
 
 Thin the two sets of occurrence records to a 1km grid and combine. So let's combine this with the GBIF occurrence above. It definitely helps us sample the temperate varieties better, but its still a minor influence relative to the numbers of gbif points. also include These are predictions from a classifier that use climate data, so not exactly useful here but interesting to see. Aus is grown in summer before monsoon and harvested in fall -- not great quality but as a backup
 
-ramirez-villegasStateExSitu2022:
-
-> Our crop landrace group distribution modelling and conservation gap analysis rely on occurrence data, including coordinates of locations where landraces were previously collected for ex situ conservation and reference sightings. For ex situ conservation records, occurrences marked as landraces were retrieved from two major online databases: the Genesys Plant Genetic Resources portal[^1](https://www.nature.com/articles/s41477-022-01144-8#ref-CR33 "Genesys-PGR: a gateway to genetic resources. Global Crop Diversity Trust https://www.genesys-pgr.org/
->
-> ```         
->              (2021).")^ and the World Information and Early Warning System on Plant Genetic Resources for Food and Agriculture (WIEWS) of the Food and Agriculture Organization of the United Nations^[34](https://www.nature.com/articles/s41477-022-01144-8#ref-CR34 "United Nations Food and Agriculture Organization World Information and Early Warning System on Plant Genetic Resources for Food and Agriculture. Food and Agricultural Organization of the United Nations 
->               http://www.fao.org/wiews/en/
->               
->              (2021).")^. Occurrences were also obtained directly from individual international genebank information systems: AfricaRice, the International Transit Centre and Musa Germplasm Information System of Bioversity International^[35](https://www.nature.com/articles/s41477-022-01144-8#ref-CR35 "Ruas, M. et al. MGIS: managing banana (Musa spp.) genetic resources information and high-throughput genotyping data Database 
->               https://doi.org/10.1093/database/bax046
->               
->              (2017).")^, CePaCT, International Center for Tropical Agriculture (CIAT), International Maize and Wheat Improvement Center (CIMMYT), International Potato Center (CIP), International Center for Agricultural Research in the Dry Areas (ICARDA), International Crops Research Institute for the Semi-arid Tropics (ICRISAT), International Institute of Tropical Agriculture (IITA) and International Rice Research Institute (IRRI), as well as from the United States Department of Agriculture (USDA) Genetic Resources Information Network (GRIN)–Global^[36](https://www.nature.com/articles/s41477-022-01144-8#ref-CR36 "National Plant Germplasm System, GRIN-Global Accessions. US Department of Agriculture Agricultural Research Service 
->               https://npgsweb.ars-grin.gov/gringlobal/search
->               
->              (2021).")^ and the Comisión Nacional para el Conocimiento y Uso de la Biodiversidad (CONABIO)^[37](https://www.nature.com/articles/s41477-022-01144-8#ref-CR37 "Portal de Geoinformacion. Comisión Nacional para el Conocimiento y Uso de la Biodiversidad 
->               http://www.conabio.gob.mx/informacion/gis/
->               
->              (2021).")^. Occurrences were compiled from the Global Biodiversity Information Facility (GBIF), with ‘living specimen’ records classified as ex situ conservation records and the remaining serving as reference sightings for use in distribution modelling. Reference occurrences were also drawn from published literature ([Supplementary Information](https://www.nature.com/articles/s41477-022-01144-8#MOESM1)). Duplicated observations within or between data sources were eliminated, with a preference to utilize the most original data. Coordinates were corrected or removed when latitude and longitude were equal to zero or inverted, located in water bodies or in the wrong country or had poor resolution (\<2 decimal places). Occurrences were clipped to study areas per crop. The complete occurrence dataset is available in Supplementary Dataset [2](https://www.nature.com/articles/s41477-022-01144-8#MOESM3).
-> ```
-
-[^1]: 33
 
 ```{r}
-rufip_thin <- dismo::gridSample(st_coordinates(rufipogon), r = chelsa_mask) %>% 
+rufip_thin <- dismo::gridSample(
+  st_coordinates(rufipogon), 
+  r = chelsa_mask) %>% 
   as_tibble() %>%
   st_as_sf(coords = c('X', 'Y'), crs = 4326) %>%
   mutate(presence = 1,
-         species = 'rufipogon')
+         type = 'rufipogon')
 
-sativa_thin <- dismo::gridSample(st_coordinates(sativa), r = chelsa_mask) %>% 
+sativa_thin <- dismo::gridSample(
+  st_coordinates(sativa), 
+  r = chelsa_mask) %>% 
   as_tibble() %>%
   st_as_sf(coords = c('X', 'Y'), crs = 4326) %>%
   mutate(presence = 1,
-         species = 'sativa')
+         type = 'sativa')
 
 gbif_thin <- bind_rows(sativa_thin, rufip_thin)
 
 gen_thinned <- gen_occs %>%
-  group_nest(species) %>%
+  group_nest(type) %>%
   mutate(data = map(data, 
                     ~dismo::gridSample(st_coordinates(.x), 
                                        r = chelsa_mask) %>%
@@ -490,10 +409,14 @@ gen_thinned <- gen_occs %>%
 comb <- bind_rows(gen_thinned, gbif_thin)
 
 ggplot() +
-  geom_sf(data = comb %>% st_crop(asia_bbox_sf), size = .5, aes(color = species)) +
+  geom_sf(data = countries, color = 'white') +
+  geom_sf(data = st_crop(comb, asia_bbox_sf), 
+          aes(color = type),
+          size = .5) +
   geom_sf(data = coasts)
+```
 
-
+```{r}
 pred_var <- read_csv('data/data-raw/Ramirez-Villegas/Sup_table_3_per_crop/rice (asia).csv') %>%
   st_as_sf(coords = c('Longitude', 'Latitude'), crs = 4326) %>%
   select(ensemble)
@@ -504,7 +427,7 @@ ggplot(pred_var, aes(color = ensemble)) +
   geom_sf(data = coasts, color = 'black')
 
 comb_final <- comb %>%
-  filter(!(species %in% c('O. rufipogon', 'rufipogon'))) %>%
+  filter(!(type %in% c('O. rufipogon', 'rufipogon'))) %>%
   bind_rows(pred_var) %>%
   st_coordinates() %>%
   dismo::gridSample(r = chelsa_mask) %>% 
@@ -512,52 +435,27 @@ comb_final <- comb %>%
   st_as_sf(coords = c('X', 'Y'), crs = 4326) %>%
   mutate(presence = 1)
 
-
 ggplot() +
   geom_sf(data = comb_final %>% st_crop(asia_bbox_sf), size = .5) +
   geom_sf(data = coasts)
 ```
 
-Now add some background points buffered around the real occurrences.
-
-We thinned the occurrence data to minimize influences from sampling biases. We select one sample per 10km grid in the predictor data [@dismo]. Because we do not have true absence data for past and present rice occurrences, we generated `n_background` latitude-weighted random background points on land surfaces. This allows us to estimate the relative suitability for the given crop with respect to the global climatic baseline.
-
-We sample everywhere to get background points, and do not ignore places with occurrences.
-
-should sample bg points within 100km buffer of presences, and/or convex hull
 
 ```{r}
-occurrence_background <- st_sample(countries_world, 2 * nrow(comb_final)) %>% st_sf()
-
-buffer <- comb_final %>%
-  st_buffer(dist = 500000) %>%
-  st_union() %>%
-  st_make_valid()
-
-occ_dat <- occurrence_background %>% 
-  st_filter(buffer) %>%
-  mutate(presence = 0) %>%
-  bind_rows(comb_final) %>%
-  bind_cols(., terra::extract(chelsa_1km, ., ID = FALSE)) %>%
-  mutate(presence = factor(presence, levels = c(1, 0)))
+occ_dat <- terra::extract(chelsa_1km, comb_final, ID = FALSE) %>%
+  bind_cols(comb_final, .)
 
 ggplot(occ_dat) +
   geom_sf(data = countries_world, color = NA) +
-  geom_sf(size = 0.1, aes(color = factor(presence, levels = c(0, 1)))) +
-  scale_color_manual(values = c('black', 'red'), name = 'Presence') + 
-  theme_minimal() +
-  geom_sf(data = buffer, fill = NA)
+  geom_sf(size = 0.1) +
+  theme_minimal()
 ```
 
 ### Satellite-derived occurrences
 
 #### International Rice Research Institute
 
-Nelson and gumma, just lowland rice for asia... Andrew Nelson, Murali Krishna Gumma. A map of lowland rice extent in the major rice growing countries of Asia. 2015, 37p. IRRI, Los Banos, Philippines.
-
-hard to verify in china, maybe overpredicts in northeast china where there's wheat. also wetlands in indonesia
-
-raw resoultion of 500m, aggregated to 5km extents. thresold at threshold of 0.1 to 0.2 from Watson et al 2015 and singh et al 2017 for occurrences to reduce data size and minize singelpixel false positives. results robust to exact resolution and point/raster definition
+Satellite-based estimates of lowland rice extent in Asia from the International Rice Research Institute [@nelson2015]. This dataset employs high-resolution (500m) presence-absence markers from MODIS observations and offers relatively uniform sampling across both temperate and tropical regions. It provides a more objective approach than spatially biased occurrence records. However, its coverage is limited to East and Southeast Asia and it may poorly distinguish intercropped wheat and rice in Northeast China and natural wetlands and paddy rice cultivation in Indonesia. To minimize such sampling issues, we aggregated the 500m data into 5km grid cells, dropping occurrences with less than 10% coverage to minimize false positives from low-pixel observations. Subsequent analyses of these data proved robust to the exact resolution and coverage threshold used.
 
 ```{r fig.width=6, fig.height=5}
 irri <- rast(here('data/data-raw/IRRI Asia Rice Extent Map/asia-rice-extent.tif')) %>%
@@ -573,7 +471,6 @@ ggplot() +
 ggplot() +
   geom_stars(data = st_as_stars(irri) > 0.04) +
   scale_fill_manual(values = c('grey', 'red'), na.value = NA, guide = FALSE) +
-  #geom_sf(data = coasts %>% st_crop(st_as_stars(irri)), color = 'white') +
   labs(title = 'Satellite-based lowland rice extent', caption = 'Nelson and Gumma (2015) "A map of lowland rice extent in the major rice growing countries of Asia"', x = '', y = '')
 ```
 
@@ -605,7 +502,7 @@ ggplot(irri_occ) +
 
 #### Monfreda and Ramankutty
 
-Monfreda and Ramankutty -- I think this is just paddy as well. this is 2008, but there is an update 2012 version by ray, updated again more recently. -- but this is harvested area, which is problematic because you can have multiple harvest a year.
+Estimates of paddy rice harvested areas around the year 2000 [@monfreda2008]. This dataset, integrates satellite-based estimates of cropland with sub-national statistics for rice harvested areas. It utilizes geospatial cropland maps to downscale harvest area and yield census data and offers global coverage at approximately 10km resolution. Countries that lack detailed administrative data at the subnational level, such as Laos and Kazakhstan, can exhibit overly smoothed areas. The use of harvested area as a metric can be misleading in regions with multiple annual harvests, leading to double or triple counting.
 
 ```{r}
 # this is just "paddy rice" according to documentation
@@ -641,19 +538,8 @@ monfreda_pts <- monfreda_fraction %>%
          presence = 1) %>%
   dplyr::select(-lyr.1) 
 
-monfreda_buffer <- monfreda_pts %>%
-  sample_frac(0.1) %>%
-  st_buffer(dist = 500000) %>%
-  st_union() %>%
-  st_make_valid()
-
-monfreda_occ <- st_sample(countries_world, 2 * nrow(monfreda_pts)) %>% 
-  st_sf() %>%
-  st_filter(monfreda_buffer) %>%
-  mutate(extent = 0, presence = 0) %>%
-  bind_rows(monfreda_pts) %>%
-  bind_cols(., terra::extract(chelsa_10km, ., ID = FALSE)) %>%
-  mutate(presence = factor(presence, levels = c(1, 0)))
+monfreda_occ <- monfreda_pts %>%
+  bind_cols(., terra::extract(chelsa_10km, ., ID = FALSE))
 
 ggplot(monfreda_occ) +
   geom_sf(data = countries_world, color = NA) +
@@ -706,7 +592,6 @@ synthesis from [@longetal2022]
 
 Actually for now don't use rice archaeological database directly, just derivatives, because of the odd file type making it difficult to extract the date information!
 
-removed khao sam kheo given incorrect date per original source, similar in Crema --
 
 ```{r}
 gb2018 <- here('data/data-raw/guedesbocinsky2018_crops_across_eurasia.xlsx') %>%
