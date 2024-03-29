@@ -16,6 +16,7 @@ library(readxl)
 library(rcarbon)
 library(rsample) # bootstraps
 library(eks)
+library(units)
 library(rnaturalearth)
 
 bbox <- terra::ext(60, 150, -20, 50)
@@ -132,7 +133,6 @@ writeCDF(cmip6_70, here('data/data-derived/chelsa_cmip6_70_5km.nc'),
 writeCDF(cmip6_26, here('data/data-derived/chelsa_cmip6_26_5km.nc'), 
          overwrite = TRUE, zname = 'var')
 
-
 model_names <- c('gfdl', 'ipsl', 'mpi', 'mri', 'ukesm')
 ssp_names <- c('ssp126', 'ssp370', 'ssp585')
 
@@ -158,7 +158,7 @@ cmip_downsample <- st_downsample(cmip6, 5)
 plot(cmip_downsample[,,,1,1,1])
 saveRDS(cmip_downsample, 'cmip6_downsampled.rds')
 object.size(cmip_downsample)
-  # mutate(temperature = units::set_units(temperature, degree_C))
+  # mutate(temperature = set_units(temperature, degree_C))
 
 #write_mdim(t3, 'cmip_test.nc')
 #test5 <- read_ncdf('cmip_test.nc', var = 'temperature', crs = 4326, eps = 0.00833333333)
@@ -178,9 +178,9 @@ countries_sub <- countries %>%
          
 obs_test <- chelsa_obs %>%
   split('variable') %>%
-  mutate(bio1 = bio1 > units::drop_units(bio1_limit),
-         bio10 = bio10 > units::drop_units(bio10_limit),
-         bio5 = bio5 > units::drop_units(bio5_limit)) %>%
+  mutate(bio1 = bio1 > drop_units(bio1_limit),
+         bio10 = bio10 > drop_units(bio10_limit),
+         bio5 = bio5 > drop_units(bio5_limit)) %>%
   rename(`Mean annual temperature` = bio1,
          `Max temperature of warmest quarter` = bio10,
          `Max temperature of warmest month` = bio5) %>%
@@ -193,9 +193,9 @@ plot(obs_test)
 
 test <- cmip6 %>%
   split('variable') %>%
-  mutate(bio1 = bio1 > units::drop_units(bio1_limit),
-         bio10 = bio10 > units::drop_units(bio10_limit),
-         bio5 = bio5 > units::drop_units(bio5_limit)) %>%
+  mutate(bio1 = bio1 > drop_units(bio1_limit),
+         bio10 = bio10 > drop_units(bio10_limit),
+         bio5 = bio5 > drop_units(bio5_limit)) %>%
   rename(`Mean annual temperature` = bio1,
          `Max temperature of warmest quarter` = bio10,
          `Max temperature of warmest month` = bio5) %>%
@@ -208,7 +208,7 @@ test1 <- st_crop(test, st_bbox(countries_sub)) %>%
   st_downsample(5) %>%
   setNames('sum')
 
-areas <- st_area(test1) %>% units::drop_units()
+areas <- st_area(test1) %>% drop_units()
 plot(areas)
 plot(obs_test)
 
@@ -300,30 +300,7 @@ erb <- here('data/data-raw/holocene_reconstruction.nc') %>%
   st_set_crs(4326) %>%
   st_crop(asia_bbox_sf)
 
-ens_sd <- st_apply(erb, c(1,2,4), sd)
-
-ens_ts <- st_apply(erb, c(3, 4), mean) %>%
-  st_as_stars() %>%
-  as_tibble()
-
-ens_mean_ts <- st_apply(erb, c(4), mean) %>%
-  st_as_stars() %>%
-  as_tibble()
-
-ggplot(ens_ts, aes(ages, mean)) +
-  geom_line(alpha = 0.05, aes(group = ens_selected)) +
-geom_line(data = ens_mean_ts, color = 'red')
-
-plot(ens_sd[,,,1:10], downsample = 0)
-plot(erb[,,,1,1], downsample = 0)
-  slice('ages', 1)
-st_dimensions(test)
-ggplot() +
-  geom_stars(data = erb[,,,1,1], downsample = 0) +
-  scale_fill_viridis_c(option = 'magma') +
-  geom_sf(data = coasts)
-               
-times <- st_get_dimension_values(erb_rotated, 'ages')
+times <- st_get_dimension_values(erb, 'ages')
 
 floor_mil   = function(value){ return(value - value %% 1000) }
 floor_cen   = function(value){ return(value - value %% 100) }
@@ -331,7 +308,7 @@ floor_cen   = function(value){ return(value - value %% 100) }
 centuries <- floor_cen(1949.5 - times)
 mil <- floor_mil(1949.5 - times)
 
-erb_millennia <- erb_rotated %>%  
+erb_millennia <- erb %>%  
   as('SpatRaster') %>%
   rotate() %>%
   tapp(mil, fun = mean) %>%
@@ -340,34 +317,18 @@ erb_millennia <- erb_rotated %>%
                     values = unique(mil) / 1000 - 1) %>%
   setNames('tas') %>%
   st_crop(asia_bbox_sf) %>%
-  mutate(tas = units::set_units(tas, degree_c)) %>%
+  mutate(tas = set_units(tas, degree_c)) %>%
   filter(time >= -8)
 
-erb_decadal <- erb_rotated %>%  
+erb_decadal <- erb %>%  
   as('SpatRaster') %>%
   rotate() %>%
   st_as_stars(crs = 4326) %>%
   st_set_dimensions('band', names = 'time', 
                     values = -1 * (times + 0.5)) %>%
   setNames('tas') %>%
- st_crop(asia_bbox) %>%
-  mutate(tas = units::set_units(tas, degree_c))
-
-trace_mean_5bp_3bp <- list.files('../../Data/TraCE-TREFHT', full.names = TRUE) %>%
-  map(~read_ncdf(., var = 'TREFHT', eps = 0.01, make_time = FALSE) %>% 
-        st_crop(asia_bbox_sf)) %>%
-  do.call(c, .) %>%
-  st_set_dimensions(names = c('x', 'y', 'time')) %>% 
-  filter(between(time, -5, -3)) %>%
-  st_apply(1:2, mean) %>%
-  st_warp(slice(erb, 'time', 1), use_gdal = TRUE, method = 'average') %>%
-  setNames('tas') %>%
-  mutate(tas = units::set_units(tas, kelvin) %>% units::set_units(degree_C))
-
-ggplot() +
-  geom_stars(data = trace_mean_5bp_3bp) +
-  scale_fill_viridis_c(option = 'magma') +
-  geom_sf(data = coasts)
+  st_crop(asia_bbox) %>%
+  mutate(tas = set_units(tas, degree_c))
 ```
 
 ```{r}
@@ -745,7 +706,7 @@ synthesis from [@longetal2022]
 
 Actually for now don't use rice archaeological database directly, just derivatives, because of the odd file type making it difficult to extract the date information!
 
-removed khao sam kheo given incorrect date per original source, similar in Crema –
+removed khao sam kheo given incorrect date per original source, similar in Crema --
 
 ```{r}
 gb2018 <- here('data/data-raw/guedesbocinsky2018_crops_across_eurasia.xlsx') %>%
@@ -1012,7 +973,7 @@ Looking at bootstrapped quantiles, there's a differences between dates and phase
 library(units)
 trace_boot %>%
   pivot_longer(MAT:twarm, values_to = 'temperature') %>%
-  mutate(temperature = units::set_units(temperature, 'degree_c')) %>%
+  mutate(temperature = set_units(temperature, 'degree_c')) %>%
   group_by(rep, name) %>%
   reframe(quant = quantile(temperature, 0.975, type = 8)) %>%
   ggplot(aes(quant)) +
@@ -1021,7 +982,7 @@ trace_boot %>%
 
 trace_boot %>%
   pivot_longer(MAT:twarm, values_to = 'temperature') %>%
-  mutate(temperature = units::set_units(temperature, 'degree_c')) %>%
+  mutate(temperature = set_units(temperature, 'degree_c')) %>%
   group_by(type, rep, name) %>%
   reframe(quant = quantile(temperature, 0.975, type = 8)) %>%
   ggplot(aes(quant)) +
@@ -1031,7 +992,7 @@ trace_boot %>%
 
 trace_boot %>%
   pivot_longer(MAT:twarm, values_to = 'temperature') %>%
-  mutate(temperature = units::set_units(temperature, 'degree_c')) %>%
+  mutate(temperature = set_units(temperature, 'degree_c')) %>%
   group_by(type, rep, name) %>%
   reframe(quant = quantile(temperature, 0.975, type = 8)) %>%
   ggplot(aes(quant)) +
