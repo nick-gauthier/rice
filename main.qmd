@@ -127,7 +127,6 @@ Contemporary rice extents fall within a relatively restricted thermal range. We 
 
 fig2_dat <- irri_occ %>%
   st_drop_geometry() %>%
-  filter(presence == 1) %>%
   select(bio1, bio5, bio10) %>%
   mutate(across(everything(), ~units::set_units(.x, 'degree_C')))
 
@@ -199,12 +198,12 @@ Between roughly 5000-4000 BP, rice spread both north- and eastward in China [@la
 #| fig-width: 9
 #| fig-height: 8
 #| cache: true
-#| fig-cap: Archaeological remains of rice and corresponding temperature distributions throughout the Holocene. A.) Archaeological records of rice distribution over time. See Methods for archaeological data sources. Time units are thousands of years before present (1950 CE). B.) Kernel density estimates of the thermal niche by millennium, with raw data points indicated in black and contemporary rice thermal limits in red. Rice occurrence data were derived from sources listed in the Methods section. Temperature data are derived from CHELSA-TraCE21k V1.0 (Karger et al. 2023). 
+#| fig-cap: Archaeological remains of rice and corresponding temperature distributions throughout the Holocene. A.) Archaeological records of rice distribution over time. See Methods for archaeological data sources. Time units are thousands of years before present (1950 CE). B.) Kernel density estimates of the thermal niche by millennium, with raw data points indicated in black and contemporary rice thermal limits in red. Rice occurrence data were derived from sources listed in the Methods. Temperature data are derived from CHELSA-TraCE21k V1.0 (Karger et al. 2023). 
 
 arch_trace_dat <- readRDS(here('data/data-derived/arch_trace.rds')) |>
   mutate(mil = (med_age - med_age %% 1000) / 1000 + 1) |>
-  filter(between(mil, -9, -2)) |>
-  mutate(mil = as.factor(mil))
+  filter(between(mil, -9, -2)) |> # reduces to 542 unique sites
+  mutate(mil = as.factor(mil)) 
 
 arch_map <- arch_trace_dat %>%
   ggplot() +
@@ -260,7 +259,8 @@ arch_map /
   plot_layout(heights = c(2, 1))
 ```
 
-These repeated instances of rice’s diversification and shifting ranges throughout its history primarily reflect genetic and cultural adaptations to cooler temperatures and shorter growing seasons. However, its upper temperature limits have remained a constant barrier to dispersal. No rice remains are recovered from regions experiencing greater than 28℃ MAT (@fig-arch-kde B), in spite of warmer conditions overall during this period. These results are robust to uncertainty in both the dating of these archaeological remains as well as spatial biases in archaeological site preservation and recovery (Supplementary Figure @fig-bootstrap). Out of 618 archaeological sites with rice remains, only seven, located in the Thar desert in Pakistan (a highly arid environment not adapted to rice cultivation), have rice in areas that experienced a TMAX of greater than 40.4℃ (@fig-arch-kde C). These appear to be outliers resulting from dating uncertainty (Supplementary Figure @fig-bootstrap b), as well as long-distance trade in rice rather than local cultivation. Regardless, this period of higher temperatures was a relatively extreme century, during which historical and archaeological evidence attest to significant cultural disruption in the impacted regions (Supplementary Figure @fig-erb-recon).
+
+These repeated instances of rice's diversification and shifting ranges throughout its history primarily reflect genetic and cultural adaptations to cooler temperatures and shorter growing seasons. However, its upper temperature limits have remained a constant barrier to dispersal. No rice remains are recovered from regions experiencing greater than 28℃ MAT (@fig-arch-kde B), in spite of warmer conditions overall during this period. These results are robust to uncertainty in both the dating of these archaeological remains as well as spatial biases in archaeological site preservation and recovery (Supplementary Figure @fig-bootstrap). Out of 803 archaeological sites with rice remains, none have experienced MAT of greater than `r bio1_limit`℃ fewer than ten, located in the Thar desert in Pakistan (a highly arid environment not adapted to rice cultivation), have rice in areas that experienced a TMAX of greater than `r bio5_limit`℃ (@fig-arch-kde C). These appear to be outliers resulting from dating uncertainty (Supplementary Figure @fig-bootstrap b), as well as long-distance trade in rice rather than local cultivation. Regardless, this period of higher temperatures was a relatively extreme century, during which historical and archaeological evidence attest to significant cultural disruption in the impacted regions (Supplementary Figure @fig-erb-recon).
 
 ## Currently cultivated rice areas are projected to exceed these thermal limits over the next century
 
@@ -475,7 +475,7 @@ We extracted the contemporary CHELSA climate data at each set of occurrence poin
 
 ## Archaeological Rice Distribution Data
 
-We used past rice occurrence data sourced from archaeological sites, as synthesized in @Guedes2018 and @long2022 and primarily derived from version 2 of the Rice Archaeological Database [@silva2015]. We also included observations from @crema2022 to increase data coverage in Japan. These records are typically of botanical remains, believed to represent *O. sativa japonica* from these archaeological sites, with less intensive sampling of *indica* varieties from northern India. However, based on their chronology, some occurrences might pertain to the wild-type *O. rufipogon* or *O. nivara*. After data harmonization---which involved eliminating potential outliers, rectifying misclassifications, and removing duplicated site data---we were left with a comprehensive dataset of 1,373 dates from 618 archaeological sites. These datasets comprise a mixture of direct radiocarbon dates on rice remains, alongside dates from associated contextual materials and ranges anchored in prevailing archaeological eras. We employed the Intcal20 calibration curve for recalibrating all radiocarbon dates, barring a single site in the southern hemisphere where we utilized SHcal20. We then extracted temperature variables from the CHELSA-TraCE21k v1.0 dataset was done at each sampled location in time and space. To account for chronological uncertainty, we generated 5,000 bootstrap replicates, sampling from the radiocarbon dates’ posterior density distribution and a uniform density for the archaeological phase dates. Finally, we constructed unique kernel density estimates of the temperature distributions at each rice occurrence point for every bootstrap replicate and temperature variable [@fig-bootstrap].
+We used past rice occurrence data sourced from archaeological sites, as synthesized in @Guedes2018 and @long2022 and primarily derived from version 2 of the Rice Archaeological Database [@silva2015]. We also included observations from @crema2022 to increase data coverage in Japan. These records are typically of botanical remains, believed to represent *O. sativa japonica* from these archaeological sites, with less intensive sampling of *indica* varieties from northern India. However, based on their chronology, some occurrences might pertain to the wild-type *O. rufipogon* or *O. nivara*. After data harmonization---which involved eliminating potential outliers, rectifying misclassifications, and removing duplicated site data---we were left with a comprehensive dataset of 1,597 dates from 805 archaeological sites. These datasets comprise a mixture of direct radiocarbon dates on rice remains, alongside dates from associated contextual materials and ranges anchored in prevailing archaeological eras. We employed the Intcal20 calibration curve for recalibrating all radiocarbon dates, barring a single site in the southern hemisphere where we utilized SHcal20. We then extracted temperature variables from the CHELSA-TraCE21k v1.0 dataset was done at each sampled location in time and space. To account for chronological uncertainty, we generated 5,000 bootstrap replicates, sampling from the radiocarbon dates' posterior density distribution and a uniform density for the archaeological phase dates. Finally, we constructed unique kernel density estimates of the temperature distributions at each rice occurrence point for every bootstrap replicate and temperature variable [@fig-bootstrap].
 
 ## Genetic Offset Analysis
 
