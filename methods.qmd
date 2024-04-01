@@ -18,6 +18,7 @@ library(rsample) # bootstraps
 library(eks)
 library(units)
 library(rnaturalearth)
+library(patchwork) # multi-panel plots
 
 bbox <- terra::ext(60, 150, -20, 50)
 bbox_world <- raster::extent(-130, 155, -40, 60)  # global
@@ -70,7 +71,8 @@ walk(filenames, function(x) {
 })
 ```
 
-Then read them in using `terra::rast()`. 
+Then read them in using `terra::rast()`.
+
 ```{r load-chelsa}
 chelsa_1km <- here('data/data-raw', filenames[-4]) |>
   rast() |>
@@ -83,12 +85,14 @@ chelsa_mask <- here('data/data-raw', filenames[4]) |>
 ```
 
 Regrid to 5 and 10km resolution.
+
 ```{r regrid-chelsa}
 chelsa_5km <- aggregate(chelsa_1km, fact = 5, cores = available_cores, na.rm = TRUE)
 chelsa_10km <- aggregate(chelsa_1km, fact = 10, cores = available_cores, na.rm = TRUE)
 ```
 
 Make additional copies cropped to Asia.
+
 ```{r}
 chelsa_1km_asia <- crop(chelsa_1km, bbox)
 chelsa_5km_asia <- crop(chelsa_5km, bbox)
@@ -96,6 +100,7 @@ chelsa_10km_asia <- crop(chelsa_10km, bbox)
 ```
 
 Check the range of values at different resolutions and extents. The upper temperatures don't appear to be very sensitive to resolution, which is good.
+
 ```{r eval = FALSE}
 list(chelsa_1km, 
      chelsa_5km, 
@@ -116,8 +121,7 @@ writeCDF(chelsa_10km_asia, here('data/data-derived/chelsa_10km_asia.nc'), overwr
 
 ## Paleoclimate reconstructions
 
-
-Past climate data were derived from the CHELSA-TraCE21k product, a downscaled version of TraCE-21k simulation of the CCSM3 climate model spanning the last 21,000 years, at 100 year intervals [@karger2023, @He2011]. This product uses the older CHELSA V1.2 algorithm, along with a trend-preserving bias correction and topographic correction for shifting ice sheets across the deglacial period. 
+Past climate data were derived from the CHELSA-TraCE21k product, a downscaled version of TraCE-21k simulation of the CCSM3 climate model spanning the last 21,000 years, at 100 year intervals [@karger2023, @He2011]. This product uses the older CHELSA V1.2 algorithm, along with a trend-preserving bias correction and topographic correction for shifting ice sheets across the deglacial period.
 
 ```{r chelsa-trace}
 # this is nor portable nor easily downloadable, will have to do something to enable reproducibility
@@ -171,8 +175,6 @@ erb_decadal <- erb %>%
   mutate(tas = set_units(tas, degree_c))
 ```
 
-
-
 ### Future climate projections
 
 Future climate model ensembles were derived from phase six of the Coupled Model Intercomparison Project (CMIP6) [@eyring2016], using the subset of bias-corrected models and scenarios used in phase 3b of the Inter-Sectoral Impact Model Intercomparison Project (ISIMIP) [@lange2019], bilinearly interpolated to the CHELSA V2.1 basemap using the delta change approach [@brun, @brun2022].
@@ -207,7 +209,6 @@ writeCDF(cmip6_70, here('data/data-derived/chelsa_cmip6_70_5km.nc'),
 writeCDF(cmip6_26, here('data/data-derived/chelsa_cmip6_26_5km.nc'), 
          overwrite = TRUE, zname = 'var')
 ```
-
 
 #### Country level summaries
 
@@ -294,7 +295,6 @@ saveRDS(df, 'data/data-derived/country_stats.rds')
 
 ```
 
-
 ### Loading Preprocessed data
 
 ```{r}
@@ -304,7 +304,6 @@ writeCDF(cmip6_70, here('data/data-derived/chelsa_cmip6_70_5km.nc'),
 writeCDF(cmip6_26, here('data/data-derived/chelsa_cmip6_26_5km.nc'), 
          overwrite = TRUE, zname = 'var')
 ```
-
 
 ## Contemporary Rice Distribution Data
 
@@ -347,7 +346,6 @@ ggplot() +
 
 #### Genbank accessions
 
-
 ```{r}
 gen_occs_data <- here('data/data-raw/12862_2018_1180_MOESM1_ESM.xls')
 if (!file.exists(gen_occs_data)) download.file('https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5913815/bin/12862_2018_1180_MOESM1_ESM.xls', gen_occs_data)
@@ -374,7 +372,6 @@ ggplot() +
 #### Combined
 
 Thin the two sets of occurrence records to a 1km grid and combine. So let's combine this with the GBIF occurrence above. It definitely helps us sample the temperate varieties better, but its still a minor influence relative to the numbers of gbif points. also include These are predictions from a classifier that use climate data, so not exactly useful here but interesting to see. Aus is grown in summer before monsoon and harvested in fall -- not great quality but as a backup
-
 
 ```{r}
 rufip_thin <- dismo::gridSample(
@@ -417,7 +414,8 @@ ggplot() +
 ```
 
 ```{r}
-pred_var <- read_csv('data/data-raw/Ramirez-Villegas/Sup_table_3_per_crop/rice (asia).csv') %>%
+pred_var <- 'data/data-raw/Ramirez-Villegas/Sup_table_3_per_crop/rice (asia).csv' %>%
+  read_csv() %>%
   st_as_sf(coords = c('Longitude', 'Latitude'), crs = 4326) %>%
   select(ensemble)
 
@@ -440,7 +438,6 @@ ggplot() +
   geom_sf(data = coasts)
 ```
 
-
 ```{r}
 occ_dat <- terra::extract(chelsa_1km, comb_final, ID = FALSE) %>%
   bind_cols(comb_final, .)
@@ -459,7 +456,7 @@ Satellite-based estimates of lowland rice extent in Asia from the International 
 
 ```{r fig.width=6, fig.height=5}
 irri <- rast(here('data/data-raw/IRRI Asia Rice Extent Map/asia-rice-extent.tif')) %>%
-  aggregate(fact = 10) %>%
+  aggregate(fact = 10) %>% # from 500m to 5km
   mask(., resample(chelsa_mask, .)) %>%
   setNames('extent')
 
@@ -469,34 +466,22 @@ ggplot() +
   coord_quickmap()
 
 ggplot() +
-  geom_stars(data = st_as_stars(irri) > 0.04) +
+  geom_stars(data = st_as_stars(irri) > 0.10) +
   scale_fill_manual(values = c('grey', 'red'), na.value = NA, guide = FALSE) +
   labs(title = 'Satellite-based lowland rice extent', caption = 'Nelson and Gumma (2015) "A map of lowland rice extent in the major rice growing countries of Asia"', x = '', y = '')
 ```
 
 ```{r}
-set.seed(1234567)
-
-irri_pts <- spatSample(irri, 100000, na.rm = TRUE, as.points = TRUE) %>%
-  st_as_sf() %>%
-  mutate(presence = as.numeric(extent > 0.05))
-
-irri_buffer <- irri_pts %>%
-  filter(presence == 1) %>%
-  sample_frac(0.1) %>%
-  st_buffer(dist = 500000) %>%
-  st_union() %>%
-  st_make_valid()
-
-irri_occ <- st_filter(irri_pts, irri_buffer) %>%
-  bind_cols(., terra::extract(chelsa_5km, ., ID = FALSE)) %>%
-  mutate(presence = factor(presence, levels = c(1, 0)))
+irri_occ <- irri %>%
+  as.data.frame(xy = TRUE) %>%
+  st_as_sf(coords = c('x', 'y'), crs = 4326) %>%
+  filter(extent > 0.10) %>%
+  bind_cols(., terra::extract(chelsa_5km, ., ID = FALSE))
 
 ggplot(irri_occ) +
   geom_sf(data = countries, color = NA) +
-  geom_sf(size = 0.1, aes(color = factor(presence, levels = c(0, 1)))) +
-  geom_sf(data = irri_buffer, fill = NA) +
-  scale_color_manual(values = c('black', 'red'), name = 'Presence') + 
+  geom_sf(size = 0.1, alpha = 0.1) +
+  scale_color_manual() + 
   theme_minimal() 
 ```
 
@@ -509,7 +494,7 @@ Estimates of paddy rice harvested areas around the year 2000 [@monfreda2008]. Th
 monfreda_fraction <- geodata::crop_monfreda('rice', 
                                             var = 'area_f', 
                                             here('data/data-raw')) %>%
-  crop(., resample(chelsa_mask, .), mask = TRUE) %>% # does this clip polynesia?
+  crop(., resample(chelsa_mask, .), mask = TRUE) %>%
   clamp(upper = 1, values = TRUE) %>% # fraction can be greater than 1 because of multi cropping
   st_as_stars() %>%
   st_crop(world_bbox_sf) %>%
@@ -526,52 +511,38 @@ ggplot() +
   geom_sf(data = coasts_world, color = 'black') 
 ```
 
-Unlike IRRI, we extract all the valid pixels and calculate the background points separately.
-
 ```{r}
-monfreda_pts <- monfreda_fraction %>%
+monfreda_occ <- monfreda_fraction %>%
   rast() %>%
   clamp(lower = 0.05, values = FALSE) %>% 
   as.data.frame(xy = TRUE) %>%
   st_as_sf(coords = c('x', 'y'), crs = 4326) %>%
-  mutate(extent = lyr.1,
-         presence = 1) %>%
-  dplyr::select(-lyr.1) 
-
-monfreda_occ <- monfreda_pts %>%
+  mutate(presence = 1) %>%
+  dplyr::select(presence, extent = area_f) %>%
   bind_cols(., terra::extract(chelsa_10km, ., ID = FALSE))
 
 ggplot(monfreda_occ) +
   geom_sf(data = countries_world, color = NA) +
-  geom_sf(size = 0.1, aes(color = factor(presence, levels = c(0, 1)))) +
-  geom_sf(data = monfreda_buffer, fill = NA) +
-  scale_color_manual(values = c('black', 'red'), name = 'Presence') + 
+  geom_sf(size = 0.1) +
   theme_minimal() 
 ```
 
 ```{r fig.asp=0.4, fig.width = 10}
 a <- ggplot(occ_dat) +
   geom_sf(data = countries_world, color = NA) +
-  geom_sf(size = 0.1, aes(color = factor(presence, levels = c(0, 1)))) +
-  scale_color_manual(values = c('black', 'red'), name = 'Presence') + 
-  theme_minimal() +
-  geom_sf(data = buffer, fill = NA)
+  geom_sf(size = 0.1) +
+  theme_minimal()
 
 b <- ggplot(irri_occ) +
   geom_sf(data = countries, color = NA) +
-  geom_sf(size = 0.1, aes(color = factor(presence, levels = c(0, 1)))) +
-  geom_sf(data = irri_buffer, fill = NA) +
-  scale_color_manual(values = c('black', 'red'), name = 'Presence') + 
+  geom_sf(size = 0.1) +
   theme_minimal() 
 
 c <- ggplot(monfreda_occ) +
   geom_sf(data = countries_world, color = NA) +
-  geom_sf(size = 0.1, aes(color = factor(presence, levels = c(0, 1)))) +
-  geom_sf(data = monfreda_buffer, fill = NA) +
-  scale_color_manual(values = c('black', 'red'), name = 'Presence') + 
+  geom_sf(size = 0.1) +
   theme_minimal() 
 
-library(patchwork)
 b + (a / c) + plot_layout(guides = 'collect') + plot_annotation(tag_levels = 'A', tag_suffix = ')')
 ```
 
