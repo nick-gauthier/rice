@@ -19,6 +19,7 @@ library(eks)
 library(units)
 library(rnaturalearth)
 library(patchwork) # multi-panel plots
+library(units)
 
 bbox <- terra::ext(60, 150, -20, 50)
 bbox_world <- raster::extent(-130, 155, -40, 60)  # global
@@ -27,7 +28,7 @@ world_bbox_sf <- st_bbox(c(xmin = -130, xmax = 155, ymin = -40, ymax = 60), crs 
 
 theme_set(theme_bw())
 
-# get country boundaries shapefile for plotting
+# get country boundaries shapefiles for plotting
 sf_use_s2(FALSE)
 countries <- ne_countries(returnclass = "sf", scale = 'large') %>% 
   st_crop(asia_bbox_sf)
@@ -119,7 +120,7 @@ writeCDF(chelsa_5km_asia, here('data/data-derived/chelsa_5km_asia.nc'), overwrit
 writeCDF(chelsa_10km_asia, here('data/data-derived/chelsa_10km_asia.nc'), overwrite = TRUE, zname = 'var')
 ```
 
-## Paleoclimate reconstructions
+### Paleoclimate reconstructions
 
 Past climate data were derived from the CHELSA-TraCE21k product, a downscaled version of TraCE-21k simulation of the CCSM3 climate model spanning the last 21,000 years, at 100 year intervals [@karger2023, @He2011]. This product uses the older CHELSA V1.2 algorithm, along with a trend-preserving bias correction and topographic correction for shifting ice sheets across the deglacial period.
 
@@ -553,16 +554,7 @@ save(irri_occ, monfreda_occ, occ_dat,
 
 ## Archaeological Data
 
-We used rice occurrence data from archaeological sites using version 2 of the Rice Archaeological Database \@[@silva2015]. The data span the period from xxx to yyy. A total of zzz sites are included in the database, mainly from eastern China, Japan, Korea, and southeast Asia. These are generally records of botanical remains thought to be *O. sativa japonica* from archaeological sites. Some of these occurrence were likely wild-type *O. rufipogon* instead based on their timing. We removed one such extremely early occurrence from xxx as a likely outlier.
-
-Also cleaned data from [@gutaker2020]
-
-Stephens and fuller data ... but its pdf.
-
-synthesis from [@longetal2022]
-
-Actually for now don't use rice archaeological database directly, just derivatives, because of the odd file type making it difficult to extract the date information!
-
+We used past rice occurrence data sourced from archaeological sites, as synthesized in @Guedes2018 and @long2022 and primarily derived from version 2 of the Rice Archaeological Database [@silva2015]. We also included observations from @crema2022 to increase data coverage in Japan. These records are typically of botanical remains, believed to represent O. sativa japonica from these archaeological sites, with less intensive sampling of indica varieties from northern India. However, based on their chronology, some occurrences might pertain to the wild-type O. rufipogon or O. nivara. 
 
 ```{r}
 gb2018 <- here('data/data-raw/guedesbocinsky2018_crops_across_eurasia.xlsx') %>%
@@ -580,15 +572,16 @@ gb2018 <- here('data/data-raw/guedesbocinsky2018_crops_across_eurasia.xlsx') %>%
          C14AgeError = `1-sigma uncertainty`, 
          Reference, 
          `Rice (wild)`) %>%
-  filter(site != 'Huizui East') %>% # dupliated with diff name in long
-  filter(is.na(labcode) | labcode != 'Beta- 378858') # incorrect date per original source and long
+  filter(site != 'Huizui East', # duplicated with diff name in long
+        is.na(labcode) | labcode != 'Beta- 378858') %>% # incorrect date per original source and long
+  mutate(source = 'gb')
 
 long <- here('data/data-raw/ScienceDirect_files_13Feb2023_15-12-15/1-s2.0-S1040618221005577-mmc2.xlsx') %>%
   read_excel(skip = 11, n_max = 260) %>%
   rename(lon = `Longitude (°E)`,
          lat = `Latitude (°N)`) %>%
   st_as_sf(coords = c('lon', 'lat'), crs = 4326) %>%
-  st_crop(asia_bbox_sf) %>% # some odd points in africa?
+  st_crop(asia_bbox_sf) %>% # only sites in Asia
   rename(site = `Archaeological site`,  
          C14Age = `Uncalibrated radiocarbon age (14C BP)`, 
          cal_age = `Calibrated median (BCE/CE)`, 
@@ -596,7 +589,8 @@ long <- here('data/data-raw/ScienceDirect_files_13Feb2023_15-12-15/1-s2.0-S10406
          C14AgeError = `Radiocarbon dating uncertainty (yr)`) %>%
   mutate(site = if_else(site == 'Khao Sam Kaeo', 'Khao Sam Kheo', site),
          site = if_else(site == 'Ter', 'Ter (Thair)', site)) %>%
-  filter(!(labcode %in% gb2018$labcode))
+  filter(!(labcode %in% gb2018$labcode)) |>
+  mutate(source = 'long')
 
 long_filter <- long %>%
   bind_rows(gb2018) %>%
@@ -608,13 +602,28 @@ long_filter <- long %>%
 japan_arch <- read_csv('data/data-raw/sciadv.adc9171_data_s1.csv') %>% # two rows ohave commas, not important
   filter(USED == 'TRUE') %>% 
   st_as_sf(coords = c('Longitude', 'Laitude'), crs = 4326) %>% # "Laitude"
-  rename(site = SiteName_en, labcode = LabCode)
+  rename(site = SiteName_en, labcode = LabCode) |>
+  mutate(source = 'japan')
+
+rad <- read_excel('data/data-raw/Rice_RAD3_OWCAD v0_9977.xlsx') %>%
+  st_as_sf(coords = c('Longitude', 'Latitude'), crs = 4326) %>%
+  filter(Oryza != 'Org') |>
+  mutate(age_upper = -1 * (as.numeric(`Finish Date BC/AD`) - 1950), # introduces NA's to some rows without upper/lower dates (which is OK)
+         age_lower = -1 * (as.numeric(`Start Date BC/AD`) - 1950)) |>
+  filter(`GeoRef Quality` > 1) |> # only sites with < 10-20km location accuracy
+  select(site = Site, age_lower, age_upper) %>%
+  st_filter(st_union(gb2018), .predicate = not_near, dist = 1000) |>
+  st_filter(st_union(japan_arch), .predicate = not_near, dist = 1000) |>
+  st_filter(st_union(long), .predicate = not_near, dist = 1000) |>
+  st_crop(asia_bbox_sf) %>% # only sites in Asia
+  filter(!((site %in% gb2018$site) | (site %in% long$site) | (site %in% japan_arch$site))) %>%
+  filter(!is.na(age_lower)) |>
+  mutate(source = 'rad')
 
 c14_cleaned <- bind_rows(
-  long = anti_join(long, long_filter),
-  gb = filter(gb2018, !is.na(C14Age)), 
-  japan = japan_arch, 
-  .id = 'source') %>%
+  anti_join(long, long_filter),
+  filter(gb2018, !is.na(C14Age)), 
+  japan_arch) %>%
    mutate(calib = ifelse(st_coordinates(geometry)[,2] > 0,
                          "intcal20",
                          "shcal20")) %>%
@@ -633,17 +642,17 @@ c14_cleaned <- c14_cleaned %>%
 
 phases_cleaned <- gb2018 %>% 
   filter(is.na(C14Age), !is.na(age_lower)) %>%
-  select(site, age_lower, age_upper) %>%
-  # ~5 sites have switched upper and lower ages
+  select(site, age_lower, age_upper, source) %>%
+  bind_rows(rad) %>%
+  # ~6 sites have switched upper and lower ages
   mutate(temp_lower = pmax(age_lower, age_upper),
          age_upper = pmin(age_lower, age_upper),
-         age_lower = temp_lower,
-         source = 'gb') %>%
+         age_lower = temp_lower) %>%
   rowwise() %>%
   mutate(med_age = median(c(age_lower, age_upper)), .before = age_lower) %>%
   ungroup() %>%
   select(-temp_lower) |>
-  filter(med_age <= 12000) |> # no dates with median age older than 12ka, removes 2x from Diaotonghuan cave and 1 each from Xianrendong and Yuchanyan
+  filter(med_age <= 12000) |> # removes dates older than 12ka, 2x from Diaotonghuan cave and 1 each from Xianrendong, Yuchanyan, Sorori, and DG9605 core
   mutate(id = 1:n(),
          id = id + nrow(c14_cleaned)) 
 
@@ -652,42 +661,26 @@ arch_dat <- bind_rows(c14 = c14_cleaned,
                       .id = 'type') %>%
   mutate(across(contains('age'), ~. * -1))
 
-rm(long_filter, japan_arch, long, gb2018)
+rm(long_filter, japan_arch, long, gb2018, rad)
 ```
+After data harmonization—which involved eliminating potential outliers, rectifying misclassifications, and removing duplicated site data—we were left with a comprehensive dataset of `r nrow(arch_dat)` dates from `r length(unique(arch_dat$site))` archaeological sites. These datasets comprise a mixture of direct radiocarbon dates on rice remains, alongside dates from associated contextual materials and ranges anchored in prevailing archaeological eras. We employed the Intcal20 calibration curve for recalibrating all radiocarbon dates, barring a single site in the southern hemisphere where we utilized SHcal20.
 
-This is rice archy dataset from dorian?
+### Extracting paleoclimate data
+
+We then extracted temperature variables from the CHELSA-TraCE21k v1.0 dataset at each sampled location in time and space. Finally, we constructed unique kernel density estimates of the temperature distributions at each rice occurrence point for every bootstrap replicate and temperature variable.
 
 ```{r}
-rad <- read_excel('data/data-raw/Rice_RAD3_OWCAD v0_9977.xlsx') %>%
-  st_as_sf(coords = c('Longitude', 'Latitude'), crs = 4326) %>%
-  select(Site, region = `Main Region`, country = Country, geo_quality = `GeoRef Quality`, samp_quality = `Sample Quality`, date_quality = `Dating Quality`, `Regional phase`:`Est.Date Median BC/AD`, Oryza, Notes:`economix taxa`) %>%
-  filter(Oryza != 'Org')
-  
-
-mapview::mapview(rad, zcol = 'geo_quality')
-mapview::mapview(rad, zcol = 'samp_quality')
-mapview::mapview(rad, zcol = 'RiceDating')
-```
-
-```{r}
-plot(st_geometry(arch_dat))
-arch <- here('data/data-raw/Archaeological Rice Dataset.xlsx') %>%
-  read_excel() %>%
-  st_as_sf(coords = c('Longitude', 'Latitude'), crs = 4326) #%>%
-  #rename(age = `Est._Date_Median_BC`) %>%
- # mutate(age = `Est._Date_Median_BC` - 1950) %>%
-#  arrange(-age)
-
-library(mapview)
-not_near <- function(x, y, dist) !st_is_within_distance(x, y, dist)
-mapview(arch_dat, cex = 3) + mapview(st_filter(arch, st_union(arch_dat), .predicate = not_near, dist = 1000)
-, col.regions = 'red')
-
-st_filter(arch, st_union(arch_dat), .predicate = not_near, dist = 1000) %>%
-  arrange(`Est._Date_Median_BC`) %>%
+arch_trace <- arch_dat %>%
+  st_extract(chelsa_trace, ., time_column = 'med_age', interpolate_time = TRUE) %>%
   st_drop_geometry() %>%
-  write_csv('data/data-derived/gutaker_sites_extra.csv')
+  bind_cols(select(arch_dat, -c(med_age, age_lower, age_upper)), .) %>%
+  remove_missing() # this shouldn't remove anything
 ```
+
+```{r}
+saveRDS(arch_trace, here('data/data-derived/arch_trace.rds'))
+```
+
 
 ## Genetic Data
 
@@ -735,6 +728,8 @@ bind_rows(gen_past, gen_mod, gen_future, .id = 'time') %>%
 
 ## Bootstrapping Archaeological Dates
 
+To account for chronological uncertainty, we generated 5,000 bootstrap replicates, sampling from the radiocarbon dates' posterior density distribution and a uniform density for the archaeological phase dates.
+
 ```{r}
 #binsense(cal, c14_cleaned$site, h = c(0, 100, 200), timeRange = c(10000, 0))
 #rice_bins <-  binPrep(sites = c14_cleaned$site, ages = c14_cleaned$C14Age, h = 100)
@@ -775,16 +770,7 @@ boot_joined <- list(c14 = map_dfr(c14_splits$splits, sampler_c14, .id = 'rep'),
   mutate(time = time)
 ```
 
-## Climate distributions
-
-```{r}
-arch_trace <- arch_dat %>%
-  st_extract(chelsa_trace, ., time_column = 'med_age', interpolate_time = TRUE) %>%
-  st_drop_geometry() %>%
-  bind_cols(select(arch_dat, -c(med_age, age_lower, age_upper)), .) %>%
-  remove_missing() # this shouldn't remove anything
-```
-
+Sample CHELSA at bootstrapped points in space-time.
 ```{r}
 trace_boot <- boot_joined %>%
   st_extract(chelsa_trace, ., time_column = 'time', interpolate_time = TRUE) %>%
@@ -794,9 +780,6 @@ trace_boot <- boot_joined %>%
 ```
 
 ```{r}
-#arch_trace <- readRDS(here('data/data-derived/arch_trace.rds'))
-saveRDS(arch_trace, here('data/data-derived/arch_trace.rds'))
-#trace_boot <- readRDS('data/data-derived/trace_boot.rds')
 saveRDS(trace_boot, 'data/data-derived/trace_boot.rds')
 ```
 
@@ -811,7 +794,6 @@ ggplot(aes(value, estimate)) +
   geom_line(alpha = 0.01, aes(group = rep)) +
   facet_wrap(~name, scales = 'free_y', nrow = 3)
 
-
 trace_boot %>%
   filter(time <= -2000) %>%
   select(rep, type, MAT:twarm) %>%
@@ -823,11 +805,11 @@ ggplot(aes(value, estimate)) +
   facet_wrap(~name, scales = 'free_y', nrow = 3)
 ```
 
-Looking at bootstrapped quantiles, there's a differences between dates and phases
+Looking at bootstrapped quantiles (there's a differences between dates and phases, likely because C14 dating is less common in India).
 
 ```{r}
-library(units)
 trace_boot %>%
+  filter(time < -2000) |> 
   pivot_longer(MAT:twarm, values_to = 'temperature') %>%
   mutate(temperature = set_units(temperature, 'degree_c')) %>%
   group_by(rep, name) %>%
@@ -837,16 +819,7 @@ trace_boot %>%
   facet_wrap(~name, scales = 'free_x')
 
 trace_boot %>%
-  pivot_longer(MAT:twarm, values_to = 'temperature') %>%
-  mutate(temperature = set_units(temperature, 'degree_c')) %>%
-  group_by(type, rep, name) %>%
-  reframe(quant = quantile(temperature, 0.975, type = 8)) %>%
-  ggplot(aes(quant)) +
-  geom_histogram(position = 'stack', aes(fill = type)) +
-  facet_wrap(~name, scales = 'free_x') +
-  theme_bw()
-
-trace_boot %>%
+  filter(time < -2000) |> 
   pivot_longer(MAT:twarm, values_to = 'temperature') %>%
   mutate(temperature = set_units(temperature, 'degree_c')) %>%
   group_by(type, rep, name) %>%
