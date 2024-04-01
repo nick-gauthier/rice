@@ -114,9 +114,9 @@ We assess thermal constraints on rice growth by comparing contemporary rice exte
 
 ```{r}
 #| label: fig-overview
-# fig-asp: 0.7
-# fig-width: 12
-# fig-cap: Observed rice extent data and thermal predictors. A) Map of lowland rice extent in Asia from the International Rice Research Institute based on estimates from MODIS satellite imagery [@nelson2015] (black) overlain by archaeological sites with evidence for rice cultivation (red). B) Point based rice occurrences from global herbarium records and genetic accessions. C) Satellite-based estimates of rice cropped area in the year 2000 from [@monfreda2008]. D) Maps of mean annual temperature, mean maximum daily temperature of the warmest month, and mean maximum daily temperature of the warmest quarter from CHELSA V2.1 averages for 1981-2010 [@karger2017; @Karger2018; @brun2022].
+#| fig-asp: 0.7
+#| fig-width: 12
+#| fig-cap: Observed rice extent data and thermal predictors. A) Map of lowland rice extent in Asia from the International Rice Research Institute based on estimates from MODIS satellite imagery [@nelson2015] (black) overlain by archaeological sites with evidence for rice cultivation (red). B) Point based rice occurrences from global herbarium records and genetic accessions. C) Satellite-based estimates of rice cropped area in the year 2000 from [@monfreda2008]. D) Maps of mean annual temperature, mean maximum daily temperature of the warmest month, and mean maximum daily temperature of the warmest quarter from CHELSA V2.1 averages for 1981-2010 [@karger2017; @Karger2018; @brun2022].
 
 a <- ggplot(irri_occ) +
   geom_sf(data = countries, color = NA) +
@@ -188,9 +188,9 @@ The vast majority of contemporary rice is grown in regions with MAT below `r bio
 
 ```{r}
 #| label: fig-kde-modern
-#| fig.height: 7
-#| fig.width: 6
-#| fig.cap: "Kernel density estimates of temperature distributions over rice growing landscapes in Asia. A) One-dimensional kernel density estimates of mean annual temperature and mean maximum daily temperature of the warmest month in grid cells with lowland rice crops, based on data from the International Rice Research Institute (Figure 1). Vertical black lines indicate the 95% central range of the temperature values, and transparent black points indicate the raw occurrence data used in the calculation of the kernel density estimates. B) Two dimensional kernel density estimates for the same variables as in A."
+#| fig-height: 7
+#| fig-width: 6
+#| fig-cap: "Kernel density estimates of temperature distributions over rice growing landscapes in Asia. A) One-dimensional kernel density estimates of mean annual temperature and mean maximum daily temperature of the warmest month in grid cells with lowland rice crops, based on data from the International Rice Research Institute (Figure 1). Vertical black lines indicate the 95% central range of the temperature values, and transparent black points indicate the raw occurrence data used in the calculation of the kernel density estimates. B) Two dimensional kernel density estimates for the same variables as in A."
 
 a <- fig2_dat %>%
   pivot_longer(bio1:bio10, names_to = 'var') %>%
@@ -344,7 +344,6 @@ fig5_quantile_data <- quants_mod %>%
                       'Max temperature of warmest quarter')))
 
 irri_occ %>%
-  filter(presence == 1) %>%
   st_extract(cmip6, .) %>%
   as_tibble() %>%
   st_drop_geometry() %>%
@@ -548,7 +547,6 @@ This work was supported by a grant from the Zegar Family Foundation.
 
 quants_mod_monfreda <- monfreda_occ %>%
   st_drop_geometry() %>%
-  filter(presence == 1) %>%
   select(bio1, bio5, bio10) %>%
   mutate(across(everything(), ~units::set_units(.x, 'degree_C'))) %>%
   reframe(across(everything(), 
@@ -558,7 +556,6 @@ quants_mod_monfreda <- monfreda_occ %>%
 
 quants_mod_gbif <- occ_dat %>%
   st_drop_geometry() %>%
-  filter(presence == 1) %>%
   select(bio1, bio5, bio10) %>%
   mutate(across(everything(), ~units::set_units(.x, 'degree_C'))) %>%
   reframe(across(everything(), 
