@@ -66,33 +66,29 @@ library(eks)
 theme_set(theme_bw())
 
 # define the study area
-asia_bbox_sf <- st_bbox(c(xmin = 60, xmax = 150, ymin = -20, ymax = 50), crs = 4326)
+asia_bbox_sf <- st_bbox(c(xmin = 60, xmax = 150, ymin = -11, ymax = 54), crs = 4326)
 world_bbox_sf <- st_bbox(c(xmin = -130, xmax = 155, ymin = -40, ymax = 60), crs = 4326)
 
 # get country boundaries shapefile for plotting
 sf_use_s2(FALSE)
-countries <- ne_countries(returnclass = "sf", scale = 'large') %>% 
+countries <- ne_countries(scale = 'large') %>% 
   st_crop(asia_bbox_sf)
-countries_small <- ne_countries(returnclass = "sf", scale = 'small') %>%
+countries_small<- ne_countries() %>%
   st_crop(asia_bbox_sf)
-coasts <- ne_coastline(returnclass = 'sf') %>%
+coasts <- ne_coastline() %>%
   st_crop(asia_bbox_sf)
-coasts_world <- ne_coastline(returnclass = 'sf') %>% 
+coasts_world <- ne_coastline() %>% 
   st_crop(world_bbox_sf)
-countries_world <- ne_countries(returnclass = "sf", scale = 'large') %>% 
+countries_world <- ne_countries(scale = 'large') %>% 
   st_crop(world_bbox_sf)
 sf_use_s2(TRUE)
 
 country_stats <- readRDS('data/data-derived/country_stats.rds') # country level stats
 
-country_stats %>%
-  filter(variable == 'Mean annual temperature') %>%
-  select(-percent, -area) %>%
-  pivot_wider(names_from = ssp, 
-              values_from = sum) %>%
-  select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
-  summarise(across(Present:`SSP5-8.5`, ~sum(.x))) %>%
-  mutate(across(everything(), ~.x / Present))
+arch_trace_dat <- readRDS(here('data/data-derived/arch_trace.rds')) |>
+  mutate(mil = (med_age - med_age %% 1000) / 1000 + 1) |>
+  filter(between(mil, -9, -2)) |> # reduces to 542 unique sites
+  mutate(mil = as.factor(mil)) 
 
 load(here('data/data-derived/occurrence_data.RData'))
 erb_decadal <- readRDS('data/data-derived/erb_decadal.rds')
@@ -100,15 +96,15 @@ erb_decadal <- readRDS('data/data-derived/erb_decadal.rds')
 
 # Introduction
 
-Domesticated rice (*Oryza sativa*) serves as a primary food source for over half the global population. More than 90% of the world’s rice is grown in Asia (China, Indonesia, India, Bangladesh, Southeast Asia, Japan, and Pakistan), and one fifth of the world’s population—more than 1 billion people—depends on rice cultivation for their livelihood. *Oryza sativa* has a deep history of cultivation and domestication beginning at least 7,000 years ago. Over the course of its domestication and subsequent spread, Asian rice has made several adaptations to changes in climate and has expanded into new environmental niches well beyond its original range of cultivation. A clear picture of rice’s shifting environmental niche is critical for understanding how rice will respond to future changes in global climate. By integrating diverse records of the current extent of rice cultivation with archaeological data on the distribution of rice since its earliest cultivation and domestication, this paper aims to establish *O. sativa’s* fundamental thermal limits—the temperature extremes beyond which rice cannot grow. Our findings indicate a consistent pattern over the past 10,000 years: domesticated Asian rice varieties have seldom thrived in regions where the mean annual temperature exceeds 28℃. Alarmingly, climate projections estimate that by 2070-2100 the land area exceeding this thermal threshold in Asia’s major rice-producing nations could expand by ten to thirty times.
+Domesticated rice (*Oryza sativa*) serves as a primary food source for over half the global population. More than 90% of the world's rice is grown in Asia (China, Indonesia, India, Bangladesh, Southeast Asia, Japan, and Pakistan), and one fifth of the world's population---more than 1 billion people---depends on rice cultivation for their livelihood. *Oryza sativa* has a deep history of cultivation and domestication beginning at least 7,000 years ago. Over the course of its domestication and subsequent spread, Asian rice has made several adaptations to changes in climate and has expanded into new environmental niches well beyond its original range of cultivation. A clear picture of rice's shifting environmental niche is critical for understanding how rice will respond to future changes in global climate. By integrating diverse records of the current extent of rice cultivation with archaeological data on the distribution of rice since its earliest cultivation and domestication, this paper aims to establish *O. sativa's* fundamental thermal limits---the temperature extremes beyond which rice cannot grow. Our findings indicate a consistent pattern over the past 10,000 years: domesticated Asian rice varieties have seldom thrived in regions where the mean annual temperature exceeds 28℃. Alarmingly, climate projections estimate that by 2070-2100 the land area exceeding this thermal threshold in Asia's major rice-producing nations could expand by ten to thirty times.
 
-Members of the grass family (*Poaceae*), which include staples like rice, maize, wheat, and barley, provide a majority of the global human caloric intake. However, these crops face a looming threat: the rate of anticipated climate change eclipses that of historical niche adaptations in grasses. By 2070, temperatures are projected to rise at a rate 5,000 times faster than what most varieties of *Poaceae* have experienced throughout their evolution [@cang2016]. Historically, *Poaceae* experienced temperature shifts ranging from 1-8℃ per million years, yet future projections anticipate changes as swift as 0.02℃ annually [@cang2016]. Rice in particular exhibits a high degree of niche conservatism in comparison to its wild progenitor [@yang2022]. Instead of expanding its niche, rice farming has shifted from previously warmer areas to cooler ones as global temperatures rise [@sloat2020]. Apparent increases in rice’s harvested area over recent decades are deceptive, reflecting advancements in farming technology rather than expansion of its climatic tolerance. For example, rice cultivation in the People’s Republic of China has gradually extended northward from Central China, a shift that, combined with intensified irrigation in the country’s hottest zones, has modestly increased China’s rice yields and masked the adverse effects of rising temperatures on national yields [@sloat2020; @wang2019].
+Members of the grass family (*Poaceae*), which include staples like rice, maize, wheat, and barley, provide a majority of the global human caloric intake. However, these crops face a looming threat: the rate of anticipated climate change eclipses that of historical niche adaptations in grasses. By 2070, temperatures are projected to rise at a rate 5,000 times faster than what most varieties of *Poaceae* have experienced throughout their evolution [@cang2016]. Historically, *Poaceae* experienced temperature shifts ranging from 1-8℃ per million years, yet future projections anticipate changes as swift as 0.02℃ annually [@cang2016]. Rice in particular exhibits a high degree of niche conservatism in comparison to its wild progenitor [@yang2022]. Instead of expanding its niche, rice farming has shifted from previously warmer areas to cooler ones as global temperatures rise [@sloat2020]. Apparent increases in rice's harvested area over recent decades are deceptive, reflecting advancements in farming technology rather than expansion of its climatic tolerance. For example, rice cultivation in the People's Republic of China has gradually extended northward from Central China, a shift that, combined with intensified irrigation in the country's hottest zones, has modestly increased China's rice yields and masked the adverse effects of rising temperatures on national yields [@sloat2020; @wang2019].
 
 While some areas may benefit from warming temperatures, this trend is not universal. In many regions, smallholder farmers rely on rice cultivation as their main source of income. Indeed, mismatches between rice-harvested areas and overall environmental suitability suggest that subsistence farming in low-income regions has already stretched rice cultivation to its climatic boundaries [@mahaut2022]. To put this into perspective, projections indicate that 15-40% of India's current rainfed rice cultivation zones will experience a reduction in climatic suitability by 2050 [@singh2017]. Since 1974, a staggering 88% of rice-harvested areas show significant shifts in yield due to climatic factors, and these shifts are associated with a 0.4% reduction in the yearly consumable food calories produced from rice [@ray2019]. However, these findings are constrained by the current distributions of rice cultivation and prevailing temperature.
 
-Few regions of the world today experience the elevated temperatures projected in many future climate-change scenarios. This makes it challenging to distinguish between inherent thermal limits for rice growth and the practical geographic constraints set by recent temperature distributions [@welch2010]. Global temperatures have already exceeded known temperatures over the past 2,000 years and we are living in the warmest centuries of at least the past 100,000 years [@masson-delmotte2021]. Contemporary studies of the thermal niche of rice have provided crucial insights into specific regions and production systems, but those with a global scope have often been reliant on limited datasets that may not capture the full diversity of rice distributions. Challenges include the potential underrepresentation of temperate rice varieties in China, uneven sampling of rainfed or upland varieties, and the geographic scope of the studies, which do not always encompass broad thermal ranges [@welch2010; @singh2017; @wang2019]. Archaeological studies have been instrumental in elucidating the timeline and geographic trajectory of rice’s domestication and spread across Asia [@fuller2009; @long2022; @crema2022; @silva2015; @weber2010]. Recent integration of archaeological rice records with spatial paleoclimate reconstructions has revealed that climate change played a major role in the early diversification and spread of rice [@dalpoimguedes2018; @gutaker2020], but the implications for rice’s future adaptability have yet to be fully explored.
+Few regions of the world today experience the elevated temperatures projected in many future climate-change scenarios. This makes it challenging to distinguish between inherent thermal limits for rice growth and the practical geographic constraints set by recent temperature distributions [@welch2010]. Global temperatures have already exceeded known temperatures over the past 2,000 years and we are living in the warmest centuries of at least the past 100,000 years [@masson-delmotte2021]. Contemporary studies of the thermal niche of rice have provided crucial insights into specific regions and production systems, but those with a global scope have often been reliant on limited datasets that may not capture the full diversity of rice distributions. Challenges include the potential underrepresentation of temperate rice varieties in China, uneven sampling of rainfed or upland varieties, and the geographic scope of the studies, which do not always encompass broad thermal ranges [@welch2010; @singh2017; @wang2019]. Archaeological studies have been instrumental in elucidating the timeline and geographic trajectory of rice's domestication and spread across Asia [@fuller2009; @long2022; @crema2022; @silva2015; @weber2010]. Recent integration of archaeological rice records with spatial paleoclimate reconstructions has revealed that climate change played a major role in the early diversification and spread of rice [@dalpoimguedes2018; @gutaker2020], but the implications for rice's future adaptability have yet to be fully explored.
 
-Here, we integrate multiple lines of evidence from the extensive history of rice cultivation to establish the fundamental thermal niche of rice and gauge its potential adaptability to impending climate changes. We estimate long-term thermal constraints on rice growth by comparing contemporary estimates of rice extent with well-dated archaeological rice occurrences, and use the results to assess the impact of projected climate changes by the end of this century. Together, our analyses confirm that imminent changes in climate conditions may force large regions of today’s primary rice producers to confront mean annual, seasonal, and monthly peak temperatures unprecedented in the history of rice cultivation and domestication.
+Here, we integrate multiple lines of evidence from the extensive history of rice cultivation to establish the fundamental thermal niche of rice and gauge its potential adaptability to impending climate changes. We estimate long-term thermal constraints on rice growth by comparing contemporary estimates of rice extent with well-dated archaeological rice occurrences, and use the results to assess the impact of projected climate changes by the end of this century. Together, our analyses confirm that imminent changes in climate conditions may force large regions of today's primary rice producers to confront mean annual, seasonal, and monthly peak temperatures unprecedented in the history of rice cultivation and domestication.
 
 # Results
 
@@ -116,7 +112,51 @@ Here, we integrate multiple lines of evidence from the extensive history of rice
 
 We assess thermal constraints on rice growth by comparing contemporary rice extents estimated from satellite imagery, agricultural censuses, and herbarium collections to indicators of annual and seasonal temperature (@fig-overview). Our analysis combines present-day rice extent data from diverse sources: satellite-based assessments of paddy rice extent in Asia [@nelson2015], hybrid satellite/census evaluations of global paddy rice cropping areas around the year 2000 [@monfreda2008], and global point occurrences derived from herbarium records and germplasm accessions [@civán2018, @yang2022, @ramirez-villegas2022]. We supplement this empirical work with reviews of prior field and lab-based agronomic studies.
 
-![Observed rice extent data and thermal predictors. A) Map of lowland rice extent (red) from the International Rice Research Institute based on estimates from MODIS satellite imagery [@nelson2015]. B) Maps of mean annual temperature (top) and mean maximum daily temperature of the warmest month (bottom) from CHELSA V2.1 averages for 1981-2010 [@karger2017; @Karger2018; @brun2022].](figures/1_data.png){#fig-overview}
+```{r}
+#| label: fig-overview
+# fig-asp: 0.7
+# fig-width: 12
+# fig-cap: Observed rice extent data and thermal predictors. A) Map of lowland rice extent in Asia from the International Rice Research Institute based on estimates from MODIS satellite imagery [@nelson2015] (black) overlain by archaeological sites with evidence for rice cultivation (red). B) Point based rice occurrences from global herbarium records and genetic accessions. C) Satellite-based estimates of rice cropped area in the year 2000 from [@monfreda2008]. D) Maps of mean annual temperature, mean maximum daily temperature of the warmest month, and mean maximum daily temperature of the warmest quarter from CHELSA V2.1 averages for 1981-2010 [@karger2017; @Karger2018; @brun2022].
+
+a <- ggplot(irri_occ) +
+  geom_sf(data = countries, color = NA) +
+  geom_sf(size = 0.01, alpha = 0.1) +
+  geom_sf(data = arch_trace_dat |> 
+  group_by(geometry) |> 
+  summarize(), color = 'red', size = .5) +
+  coord_sf(expand = FALSE)
+
+b <- ggplot(occ_dat) +
+  geom_sf(data = countries_world, color = NA) +
+  geom_sf(size = 0.05, alpha = 0.5) +
+  coord_sf(expand = FALSE)
+
+c <- ggplot(monfreda_occ) +
+  geom_sf(data = countries_world, color = NA) +
+  geom_sf(size = 0.0001, alpha = 0.1) +
+  coord_sf(expand = FALSE)
+
+chelsa <- c('CHELSA_bio1_1981-2010_V.2.1.tif', 
+            'CHELSA_bio5_1981-2010_V.2.1.tif', 
+            'CHELSA_bio10_1981-2010_V.2.1.tif') %>%
+  here('data/data-raw', .) |>
+  read_stars(proxy = TRUE) |>
+  st_crop(asia_bbox_sf) |>
+  setNames(c('Mean annual temperature', 
+             'Mean maximum temperature of the warmest month', 
+             'Mean maximum temperature of the warmest quarter')) |>
+  merge()
+
+d <- ggplot() +
+  geom_stars(data = chelsa[countries_small], downsample = c(20, 20, 0)) +
+  facet_wrap(~attributes, nrow = 1) +
+  scale_fill_viridis_c(option = 'magma', name = '°C', na.value = NA) +
+  geom_sf(data = coasts) +
+  labs(x = '', y = '') +
+  coord_sf(expand = FALSE)
+
+(a + (b / c)) / d + plot_annotation(tag_levels = 'A', tag_suffix = ')') + plot_layout(heights = c(1.51))
+```
 
 We define the "thermal limits" of rice cultivation as the 95% central range of three temperature indicators at all sampled rice occurrence locations. This empirical, niche-based suitability assessment emphasizes the fundamental feasibility of crop survival over the long term. Focusing on absolute thresholds of plant growth and survival, as opposed to annual variations in yield and harvest area, offers a parsimonious tool for estimating future crop suitability [@hatfield2011; @Gourdji2012] that allows for integrating a wider array of data sources. Although process-based crop models are a complementary means to extrapolate yield responses to climate change, factors like meteorological inputs, agronomic and physiological parameters, and assumptions about cultural practices like planting dates and varietal preferences can drastically impact potential future outcomes over the long term [@zhang2008; @vanoort2011; @li2015; @koehler2013; @heinicke2022]. Translating projections from localized crop models to the global scale of future climate projections introduces its own set of challenges, as does calibrating and validating their outputs using limited and inconsistent yield data from the recent or more distant past. Ultimately, a better understanding of baseline thermal limits and their uncertainty through time and space can contribute to the development of future process-based models, many of which incorporate temperature thresholds for pivotal crop development phases.
 
@@ -144,7 +184,7 @@ bio5_limit <- quant_975$bio5
 bio10_limit <- quant_975$bio10
 ```
 
-The vast majority of contemporary rice is grown in regions with MAT below `r bio1_limit`℃, TWARM of `r bio10_limit`℃, and TMAX of `r bio5_limit`℃ (@fig-kde-modern). Although we primarily report results from the satellite-based estimates of lowland rice extent over Asia produced by the International Rice Research Institute [@nelson2015] due to its favorable balance of spatial resolution and extent, results from other rice extent datasets with variable spatial extent, resolution, and time span are consistent with these findings (Supplementary @tbl-quantiles-2). There is much more variability across data sources in lower temperature thresholds—reflecting the greater adaptability of rice to colder temperatures through breeding, management, and growing season—than upper temperature thresholds. These empirical thresholds are consistent with physiological parameters inferred from field-scale agronomic studies and expert knowledge, which estimate that the optimum temperature range for reproductive yield in rice is 23℃-26℃, biomass and pollen viability declines when maximum temperatures exceed 33℃, and crop viability reaches zero at approximately 40℃ when photosynthesis begins to shut down in C3 plants like rice [@hatfield2011]. In other words, rice today is not grown in regions where the mean annual temperature exceeds its optimum temperature for reproduction, warm-season maximum temperatures exceed its optimum for pollen viability, and summer heat extremes will reliably stop photosynthesis.
+The vast majority of contemporary rice is grown in regions with MAT below `r bio1_limit`℃, TWARM of `r bio10_limit`℃, and TMAX of `r bio5_limit`℃ (@fig-kde-modern). Although we primarily report results from the satellite-based estimates of lowland rice extent over Asia produced by the International Rice Research Institute [@nelson2015] due to its favorable balance of spatial resolution and extent, results from other rice extent datasets with variable spatial extent, resolution, and time span are consistent with these findings (Supplementary @tbl-quantiles-2). There is much more variability across data sources in lower temperature thresholds---reflecting the greater adaptability of rice to colder temperatures through breeding, management, and growing season---than upper temperature thresholds. These empirical thresholds are consistent with physiological parameters inferred from field-scale agronomic studies and expert knowledge, which estimate that the optimum temperature range for reproductive yield in rice is 23℃-26℃, biomass and pollen viability declines when maximum temperatures exceed 33℃, and crop viability reaches zero at approximately 40℃ when photosynthesis begins to shut down in C3 plants like rice [@hatfield2011]. In other words, rice today is not grown in regions where the mean annual temperature exceeds its optimum temperature for reproduction, warm-season maximum temperatures exceed its optimum for pollen viability, and summer heat extremes will reliably stop photosynthesis.
 
 ```{r}
 #| label: fig-kde-modern
@@ -187,7 +227,7 @@ a / b + plot_layout(heights = c(1.5, 2)) + plot_annotation(tag_levels = 'A', tag
 
 ## High-temperature constraints are consistent across 9,000 years of rice cultivation
 
-Although upper temperature limits on rice growth estimated from contemporary crop occurrences are consistent with previous agronomic studies, it is not yet clear how well these thresholds will predict crop responses to future temperature changes. Beyond the Sahara and Gulf deserts, there are few places today that experience mean annual temperatures beyond 28℃, and contemporary correlations between mean annual temperatures and monthly or seasonal extremes may not hold in a changing climate. The archaeological record of rice cultivation in Asia, including direct dates of botanical remains and contextual dating of concurrent archaeological sites, provides a unique opportunity to assess the robustness of these temperature limits over the long term. During the mid Holocene (ca 8000-4000 cal. BP), mean annual and growing season temperatures were generally warmer than present, reflecting increased summertime insolation in the Northern Hemisphere due to shifts in Earth’s orbit and consequent feedbacks in the global climate system [@berger1991]. Although not an exact analogue for projected future warming caused by greenhouse gas emissions, this period provides a baseline for rice’s response to shifting climates during the critical period of its domestication and dispersal.
+Although upper temperature limits on rice growth estimated from contemporary crop occurrences are consistent with previous agronomic studies, it is not yet clear how well these thresholds will predict crop responses to future temperature changes. Beyond the Sahara and Gulf deserts, there are few places today that experience mean annual temperatures beyond 28℃, and contemporary correlations between mean annual temperatures and monthly or seasonal extremes may not hold in a changing climate. The archaeological record of rice cultivation in Asia, including direct dates of botanical remains and contextual dating of concurrent archaeological sites, provides a unique opportunity to assess the robustness of these temperature limits over the long term. During the mid Holocene (ca 8000-4000 cal. BP), mean annual and growing season temperatures were generally warmer than present, reflecting increased summertime insolation in the Northern Hemisphere due to shifts in Earth's orbit and consequent feedbacks in the global climate system [@berger1991]. Although not an exact analogue for projected future warming caused by greenhouse gas emissions, this period provides a baseline for rice's response to shifting climates during the critical period of its domestication and dispersal.
 
 *O. sativa* has been domesticated a number of times in prehistory. Archaeological data shows that wild forms of rice were distributed as far as northern China in the early Holocene (ca 9000 cal. BP) and gathered by foraging populations [@fuller2011]. Tropical varieties of *O. sativa japonica* were first cultivated in the middle and lower Yangtze and Yellow River valleys in China by at least 7000 cal. BP [@huang2012; @choi2017; @choi2018] (@fig-arch-kde A), where they began to exhibit traits of domestication (e.g. the development of a non-shattering rachis) by roughly 5000 cal. BP [@fuller2009; @Silva2015]. *Oryza sativa indica* rices on the other hand were likely domesticated in South Asia sometime around 4000 cal. BP [@fuller2016; @bates2022], after which it spread throughout southeast Asia and China (@fig-arch-kde A). There is substantially less archaeobotanical data, however, that speaks to the cultivation and subsequent domestication of this cultivar [@bates2022]. This period of initial cultivation and domestication corresponds to the warmer mid-Holocene thermal maximum.
 
@@ -199,11 +239,6 @@ Between roughly 5000-4000 BP, rice spread both north- and eastward in China [@la
 #| fig-height: 8
 #| cache: true
 #| fig-cap: Archaeological remains of rice and corresponding temperature distributions throughout the Holocene. A.) Archaeological records of rice distribution over time. See Methods for archaeological data sources. Time units are thousands of years before present (1950 CE). B.) Kernel density estimates of the thermal niche by millennium, with raw data points indicated in black and contemporary rice thermal limits in red. Rice occurrence data were derived from sources listed in the Methods. Temperature data are derived from CHELSA-TraCE21k V1.0 (Karger et al. 2023). 
-
-arch_trace_dat <- readRDS(here('data/data-derived/arch_trace.rds')) |>
-  mutate(mil = (med_age - med_age %% 1000) / 1000 + 1) |>
-  filter(between(mil, -9, -2)) |> # reduces to 542 unique sites
-  mutate(mil = as.factor(mil)) 
 
 arch_map <- arch_trace_dat %>%
   ggplot() +
@@ -483,9 +518,9 @@ We performed a genetic offset analysis to evaluate the potential maladaptation o
 
 Landraces are representative of the extant genetic diversity of crop species, and frequently exhibit local adaptations from sustained cultivation in specific geographic localities. Sampling landraces of a crop over a wide geographical area and sequencing their genomes can help identify putative adaptive variants associated with different environments. Genetic offset statistics provide measures of maladaptation under different or projected climate scenarios, based on association of genotypes with environmental variation [@gain2023].
 
-Using previously published datasets of geotagged rice landraces belonging to the subspecies *O. sativa ssp. Indica* [@gutaker2020] and *O. sativa ssp. Japonica* [@alam2021], we performed gene-environment association (GEA) analyses with lfmm2 function from the R package LEA (v3.12.2)—on the two subspecies separately—to identify variants associated with variation in temperature [@gain2021]. Temperature was represented by the first principal component (PC1) of mean annual temperature (bio1), mean maximum daily temperature of the warmest month (bio5), and mean daily temperature of the warmest quarter (bio10) from CHELSA V2 averages for the period 1981-2010. PC1 represented 84.6% and 86.12% of the variation in the environmental data for the *indica* and *japonica* datasets, respectively. To correct for population structure in the GEA, we provided the number of ancestral populations, K, as the number of latent factors in our latent factor mixed models [@gain2021]. We selected the number of ancestral populations based on the number of principal components of the genotype matrix that explain a large proportion of the variance, the cross-entropy—a measure of model fit—of different values of K, and information from prior studies [@gutaker2020; @alam2021]. Variants identified in the GEA were clumped within 100 kb of each other, selecting the variant with the lowest p-value as the focal SNP.
+Using previously published datasets of geotagged rice landraces belonging to the subspecies *O. sativa ssp. Indica* [@gutaker2020] and *O. sativa ssp. Japonica* [@alam2021], we performed gene-environment association (GEA) analyses with lfmm2 function from the R package LEA (v3.12.2)---on the two subspecies separately---to identify variants associated with variation in temperature [@gain2021]. Temperature was represented by the first principal component of mean annual temperature, mean maximum daily temperature of the warmest month, and mean daily temperature of the warmest quarter from CHELSA V2 averages for the period 1981-2010. The first principal component represented 84.6% and 86.12% of the variation in the environmental data for the *indica* and *japonica* datasets, respectively. To correct for population structure in the GEA, we provided the number of ancestral populations, K, as the number of latent factors in our latent factor mixed models [@gain2021]. We selected the number of ancestral populations based on the number of principal components of the genotype matrix that explain a large proportion of the variance, the cross-entropy---a measure of model fit---of different values of K, and information from prior studies [@gutaker2020; @alam2021]. Variants identified in the GEA were clumped within 100 kb of each other, selecting the variant with the lowest p-value as the focal SNP.
 
-We used the genetic.offset function of the R package LEA [@gain2021] to calculate genomic offset statistics for rice landraces of *O. sativa ssp. Indica* and *O. sativa ssp. Japonica* while considering the temperature-associated variants as putative adaptive variants under the SSP1, SSP3, and SSP5 projected pathways that are used to derive greenhouse gas emission scenarios. We also calculated genomic offset statistics under the maximum estimated temperature at each location in the past 12,000 years. For both *japonica* and *indica*, the degree of maladaptation increases from SSP1, which is a best-case scenario with decreasing greenhouse gas emissions, to SSP3 to SSP5, which represents a worse-case scenario. Rice landraces appear relatively well-adapted under the past maximum temperature scenario, except for some varieties in the northern range of rice cultivation which is consistent with past findings that temperate-adapted northern varieties possibly started growing in these regions after a global temperature decline 4,200 years ago [@gutaker2020] (Fig. 6).
+We used the genetic.offset function of the R package LEA [@gain2021] to calculate genomic offset statistics for rice landraces of *O. sativa ssp. Indica* and *O. sativa ssp. Japonica* while considering the temperature-associated variants as putative adaptive variants under the SSP1, SSP3, and SSP5 projected pathways that are used to derive greenhouse gas emission scenarios. We also calculated genomic offset statistics under the maximum estimated temperature at each location in the past 12,000 years. For both *japonica* and *indica*, the degree of maladaptation increases from SSP1, which is a best-case scenario with decreasing greenhouse gas emissions, to SSP3 to SSP5, which represents a worse-case scenario. Rice landraces appear relatively well-adapted under the past maximum temperature scenario, except for some varieties in the northern range of rice cultivation which is consistent with past findings that temperate-adapted northern varieties possibly started growing in these regions after a global temperature decline 4,200 years ago [@gutaker2020].
 
 To make predictions about where the climate is likely to be optimal for rice-growing in the future, we sampled 10,000 grids from across Asia and calculated genomic offset scores for each individual in the environment of each grid, for the three SSP scenarios. We interpret the grid with the lowest offset score as a possible future optimal location for each rice individual. As a measure of the extent of movement that would be required for adaptation, we subtract the absolute value of the current latitude of each rice individual from the absolute value of the centroid latitude of the optimal grid; positive values of this absolute latitudinal distance indicate movement away from the equator.
 
@@ -499,7 +534,7 @@ All data required to reproduce the analysis is included with the analysis code o
 
 # Author Contributions
 
-**Nicolas Gauthier:** conceptualization, methodology, software, formal analysis, investigation, data curation, writing - original draft, writing – review and editing, visualization. **Ornob Alam:** methodology, software, data curation, formal analysis, writing - review and editing. **Michael Purugganan:** methodology, writing – review and editing, supervision, funding acquisition. **Jade d'Alpoim Guedes:** conceptualization, methodology, validation, data curation, writing – original draft, writing – review and editing, supervision, funding acquisition.
+**Nicolas Gauthier:** conceptualization, methodology, software, formal analysis, investigation, data curation, writing - original draft, writing -- review and editing, visualization. **Ornob Alam:** methodology, software, data curation, formal analysis, writing - review and editing. **Michael Purugganan:** methodology, writing -- review and editing, supervision, funding acquisition. **Jade d'Alpoim Guedes:** conceptualization, methodology, validation, data curation, writing -- original draft, writing -- review and editing, supervision, funding acquisition.
 
 # Acknowledgements
 
@@ -545,12 +580,8 @@ left_join(quants_mod, quants_mod_monfreda, by = 'quantile') %>%
 
 ![Present-day rice extent quantiles across three datasets of varying resolution and spatiotemporal support.](data/data-derived/quantiles_table.png){#tbl-quantiles-2 width="6in"}
 
-![Rice distribution data: a) IRRI, b) Monfreda et al., c) GBIF. Occurrence points in red, background points in black.](figures/data_fig.png){#fig-occurrences width="6in"}
-
 ```{r}
 #| label: fig-country-summaries
-#| fig-width: 6.5
-#| fig-height: 6
 #| fig-cap: "Projected increases in land area surpassing key temperature thresholds in each of the top 15 rice-producing countries in east Asia."
 country_stats %>% 
   ggplot(aes(ssp, percent, group = variable, color = variable)) +
@@ -564,6 +595,16 @@ country_stats %>%
 ```{r}
 #| label: tbl-country-summaries-table
 #| tbl-cap: "Projected increases in land area surpassing key temperature thresholds in each of the top 15 rice-producing countries in east Asia."
+
+# this is total land area??
+country_stats %>%
+  filter(variable == 'Mean annual temperature') %>%
+  select(-percent, -area) %>%
+  pivot_wider(names_from = ssp, 
+              values_from = sum) %>%
+  select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
+  summarise(across(Present:`SSP5-8.5`, ~sum(.x))) %>%
+  mutate(across(everything(), ~.x / Present))
 
 country_stats %>%
   mutate(percent = round(percent)) %>%
@@ -747,7 +788,6 @@ boot_2 <- trace_boot %>%
 
 rm(trace_boot)
 
-boot_1 / boot_2 +  plot_annotation(tag_levels = 'A') + plot_layout(heights = c(2,1))
 boot_1 + boot_2 +  plot_annotation(tag_levels = 'A')
 ```
 
