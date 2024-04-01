@@ -709,11 +709,18 @@ eof / amp + plot_layout(heights = c(2,1))
 #| label: fig-bootstrap
 #| fig-width: 6
 #| fig-height: 8
-#| fig-cap: "A) Bootstrapped kernel density estimates of rice's thermal extent throughout the Holocene. Bootstrap resampling accounts for uncertainty in radiocarbon and phase-based dating of archaeological rice finds. Contemporary temperature tresholds indicated in red. B) Estimated 97.5% quantiles from the bootstrapped dataset by date type."
+#| fig-cap: "A) Bootstrapped kernel density estimates of rice's thermal extent throughout the Holocene. Bootstrap resampling accounts for uncertainty in radiocarbon and phase-based dating of archaeological rice finds. Contemporary temperature tresholds indicated in red. B) Estimated 97.5% quantiles from the bootstrapped dataset. Contemporary quantiles indicated in red."
+#| cache: true
 
 trace_boot <- readRDS('data/data-derived/trace_boot.rds')
 
-boot_1 <-  trace_boot %>%
+# contemporary quantiles for plotting
+quant_dat <- quant_975 |>
+               select(-quantile) |>
+               setNames(c('MAT', 'tmax', 'twarm')) |>
+              pivot_longer(everything())
+
+boot_1 <- trace_boot %>%
   filter(time <= -2000) %>%
   select(rep, MAT:twarm) %>%
   pivot_longer(MAT:twarm) %>%
@@ -722,27 +729,26 @@ boot_1 <-  trace_boot %>%
 ggplot(aes(value, estimate)) +
   geom_line(alpha = 0.01, aes(group = rep)) +
   facet_wrap(~name, scales = 'free_y', nrow = 3) +
-  geom_vline(data = quant_975 |>
-  select(-quantile) |>
-  setNames(c('MAT', 'tmax', 'twarm')) |>
-  pivot_longer(everything()),
-  aes(xintercept = as.numeric(value)),
-  linetype = 2, color = 'red')
+  geom_vline(data = quant_dat, aes(xintercept = as.numeric(value)), linetype = 2, color = 'red') +
+  labs(x = 'Temperature')
 
 boot_2 <- trace_boot %>%
-    filter(time <= -2000) %>%
+  filter(time <= -2000) %>%
   pivot_longer(MAT:twarm, values_to = 'temperature') %>%
   mutate(temperature = units::set_units(temperature, 'degree_c')) %>%
-  group_by(type, rep, name) %>%
-  reframe(quant = quantile(temperature, 0.975, type = 8)) %>%
-  ggplot(aes(quant)) +
-  geom_histogram(position = 'stack', aes(fill = type)) +
-  facet_wrap(~name, scales = 'free_x') +
-  theme_bw()
+  group_by(rep, name) %>%
+  reframe(value = quantile(temperature, 0.975, type = 8)) %>%
+  ggplot(aes(value)) +
+    geom_histogram() +
+    facet_wrap(~name, scales = 'free_x', nrow = 3) +
+    labs(x = 'Temperature') +
+    theme_bw() +
+    geom_vline(data = quant_dat, aes(xintercept = value), linetype = 2, color = 'red')
 
 rm(trace_boot)
 
 boot_1 / boot_2 +  plot_annotation(tag_levels = 'A') + plot_layout(heights = c(2,1))
+boot_1 + boot_2 +  plot_annotation(tag_levels = 'A')
 ```
 
 # References
