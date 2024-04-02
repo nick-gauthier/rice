@@ -54,7 +54,7 @@ We used high-resolution gridded climate data from version 2.1 of the CHELSA prod
 
 For present-day observed climate, we used the CHELSA V2.1 product spanning the period 1981-2010 at a 1km resolution. We further aggregated the native 1km data to 5km and 10km grids to assess the sensitivity of our results to the scale of the analysis, given the variable spatial support of the contemporary rice extent data. In all cases we used standard temperature indicators used in ecological niche modeling studies [@brun], derived from monthly climatologies of minimum and maximum temperature, which collectively represent annual means, monthly extremes, and seasonality.
 
-First we download the CHELSA data if they are not already present in the data/ folder.
+First we download the CHELSA data if they are not already present in the `data/` folder.
 
 ```{r download-chelsa}
 # download contemporary CHELSA temperature rasters
@@ -149,8 +149,8 @@ chelsa_trace <- c(trace_tmp, trace_tmax, trace_twarm) %>%
   setNames(c('MAT', 'tmax', 'twarm'))
 
 # test of using vsicurl to get data w/out download
-test <- rast('/vsicurl/https://os.zhdk.cloud.switch.ch/envicloud/chelsa/chelsa_V1/chelsa_trace/bio/CHELSA_TraCE21k_bio01_-100_V1.0.tif')
-plot(test)
+#test <- rast('/vsicurl/https://os.zhdk.cloud.switch.ch/envicloud/chelsa/chelsa_V1/chelsa_trace/bio/CHELSA_TraCE21k_bio01_-100_V1.0.tif')
+#plot(test)
 ```
 
 ```{r erb, eval = FALSE}
@@ -179,6 +179,28 @@ erb_decadal <- erb %>%
 ### Future climate projections
 
 Future climate model ensembles were derived from phase six of the Coupled Model Intercomparison Project (CMIP6) [@eyring2016], using the subset of bias-corrected models and scenarios used in phase 3b of the Inter-Sectoral Impact Model Intercomparison Project (ISIMIP) [@lange2019], bilinearly interpolated to the CHELSA V2.1 basemap using the delta change approach [@brun, @brun2022].
+
+```{r}
+model_names <- c('gfdl', 'ipsl', 'mpi', 'mri', 'ukesm')
+ssp_names <- c('ssp126', 'ssp370', 'ssp585')
+
+cmip6 <-  model_names %>%
+  map(paste,  ssp_names, sep = '/' ) %>%
+  map_depth(1, ~paste0('~/Dropbox (UFL)/Data/CHELSA/CMIP6/2071-2100/', .x, '/bio') %>% as.list()) %>%
+  map_depth(2, ~list.files(.x, full.names = TRUE, pattern = '*_bio1_|_bio5_|_bio10_*')) %>%
+  map_depth(2, ~read_stars(.x) %>%
+              setNames(c('bio1', 'bio10', 'bio5')) %>%
+              st_redimension()) %>%
+  map(~do.call('c', .x) %>% 
+        setNames(c('SSP1-2.6', 'SSP3-7.0', 'SSP5-8.5')) %>% 
+        st_redimension()) %>%
+  do.call('c', .) %>%
+  setNames(model_names) %>%
+  st_redimension() %>%
+  st_set_dimensions(names = c('x', 'y', 'variable', 'ssp', 'model')) %>%
+  setNames('temperature') %>%
+  .[countries]
+```
 
 ```{r}
 #delete?
@@ -453,7 +475,7 @@ ggplot(occ_dat) +
 
 #### International Rice Research Institute
 
-Satellite-based estimates of lowland rice extent in Asia from the International Rice Research Institute [@nelson2015]. This dataset employs high-resolution (500m) presence-absence markers from MODIS observations and offers relatively uniform sampling across both temperate and tropical regions. It provides a more objective approach than spatially biased occurrence records. However, its coverage is limited to East and Southeast Asia and it may poorly distinguish intercropped wheat and rice in Northeast China and natural wetlands and paddy rice cultivation in Indonesia. To minimize such sampling issues, we aggregated the 500m data into 5km grid cells, dropping occurrences with less than 10% coverage to minimize false positives from low-pixel observations. Subsequent analyses of these data proved robust to the exact resolution and coverage threshold used.
+Satellite-based estimates of lowland rice extent in Asia from the International Rice Research Institute [@nelson2015]. This dataset employs high-resolution (500m) presence-absence markers from MODIS observations and offers relatively uniform sampling across both temperate and tropical regions. It provides a more objective approach than spatially biased occurrence records. However, its coverage is limited to East and Southeast Asia and it may poorly distinguish intercropped wheat and rice in Northeast China and natural wetlands and paddy rice cultivation in Indonesia. To minimize such sampling issues, we aggregated the 500m data into 5km grid cells, dropping occurrences with less than 20% coverage to minimize false positives from low-pixel observations. Subsequent analyses of these data proved robust to the exact resolution and coverage threshold used.
 
 ```{r fig.width=6, fig.height=5}
 irri <- rast(here('data/data-raw/IRRI Asia Rice Extent Map/asia-rice-extent.tif')) %>%
@@ -467,16 +489,17 @@ ggplot() +
   coord_quickmap()
 
 ggplot() +
-  geom_stars(data = st_as_stars(irri) > 0.10) +
+  geom_stars(data = st_as_stars(irri) > 0.20) +
   scale_fill_manual(values = c('grey', 'red'), na.value = NA, guide = FALSE) +
-  labs(title = 'Satellite-based lowland rice extent', caption = 'Nelson and Gumma (2015) "A map of lowland rice extent in the major rice growing countries of Asia"', x = '', y = '')
+  labs(title = 'Satellite-based lowland rice extent', 
+       caption = 'Nelson and Gumma (2015) "A map of lowland rice extent in the major rice growing countries of Asia"', x = '', y = '')
 ```
 
 ```{r}
 irri_occ <- irri %>%
   as.data.frame(xy = TRUE) %>%
   st_as_sf(coords = c('x', 'y'), crs = 4326) %>%
-  filter(extent > 0.10) %>%
+  filter(extent > 0.20) %>%
   bind_cols(., terra::extract(chelsa_5km, ., ID = FALSE))
 
 ggplot(irri_occ) +
@@ -554,7 +577,7 @@ save(irri_occ, monfreda_occ, occ_dat,
 
 ## Archaeological Data
 
-We used past rice occurrence data sourced from archaeological sites, as synthesized in @Guedes2018 and @long2022 and primarily derived from version 2 of the Rice Archaeological Database [@silva2015]. We also included observations from @crema2022 to increase data coverage in Japan. These records are typically of botanical remains, believed to represent O. sativa japonica from these archaeological sites, with less intensive sampling of indica varieties from northern India. However, based on their chronology, some occurrences might pertain to the wild-type O. rufipogon or O. nivara. 
+We used past rice occurrence data sourced from archaeological sites, as synthesized in @Guedes2018 and @long2022 and primarily derived from version 2 of the Rice Archaeological Database [@silva2015]. We also included observations from @crema2022 to increase data coverage in Japan. These records are typically of botanical remains, believed to represent O. sativa japonica from these archaeological sites, with less intensive sampling of indica varieties from northern India. However, based on their chronology, some occurrences might pertain to the wild-type O. rufipogon or O. nivara.
 
 ```{r}
 gb2018 <- here('data/data-raw/guedesbocinsky2018_crops_across_eurasia.xlsx') %>%
@@ -663,70 +686,10 @@ arch_dat <- bind_rows(c14 = c14_cleaned,
 
 rm(long_filter, japan_arch, long, gb2018, rad)
 ```
+
 After data harmonization—which involved eliminating potential outliers, rectifying misclassifications, and removing duplicated site data—we were left with a comprehensive dataset of `r nrow(arch_dat)` dates from `r length(unique(arch_dat$site))` archaeological sites. These datasets comprise a mixture of direct radiocarbon dates on rice remains, alongside dates from associated contextual materials and ranges anchored in prevailing archaeological eras. We employed the Intcal20 calibration curve for recalibrating all radiocarbon dates, barring a single site in the southern hemisphere where we utilized SHcal20.
 
-### Extracting paleoclimate data
-
-We then extracted temperature variables from the CHELSA-TraCE21k v1.0 dataset at each sampled location in time and space. Finally, we constructed unique kernel density estimates of the temperature distributions at each rice occurrence point for every bootstrap replicate and temperature variable.
-
-```{r}
-arch_trace <- arch_dat %>%
-  st_extract(chelsa_trace, ., time_column = 'med_age', interpolate_time = TRUE) %>%
-  st_drop_geometry() %>%
-  bind_cols(select(arch_dat, -c(med_age, age_lower, age_upper)), .) %>%
-  remove_missing() # this shouldn't remove anything
-```
-
-```{r}
-saveRDS(arch_trace, here('data/data-derived/arch_trace.rds'))
-```
-
-
-## Genetic Data
-
-```{r}
-rice_accessions <- list(indica = 'data/data-raw/indica_accessions.csv',
-                        japonica = 'data/data-raw/japonica_accessions.csv') %>%
-  map(read_csv) %>%
-  map(remove_missing) %>% # missing points data in Taiwan
-  map_dfr(st_as_sf, coords = c('LON', 'LAT'), crs = 4326, .id = 'type')
-
-
-rice_accessions %>%
-  select(type) %>%
-  plot()
-```
-
-```{r}
-gen_mod <- extract(chelsa_1km, rice_accessions, ID = FALSE) %>%
-  bind_cols(rice_accessions) %>%
-  select(ID, type, bio1:bio10) %>%
-  write_csv(here('data/data-derived/rice_temperatures_present.csv'))
-
-gen_future <- cmip6 %>%
-   st_extract(rice_accessions) %>%
-   as_tibble() %>%
-   bind_cols(map_dfr(1:45, ~rice_accesssions)) %>%
-   select(ID, type, ssp, model, variable, temperature) %>%
-   pivot_wider(names_from = variable, values_from = temperature) %>%
-     write_csv(here('data/data-derived/rice_temperatures_future.csv'))
-
-gen_past <- chelsa_trace %>%
-  st_extract(rice_accessions) %>%
-  st_apply(1, max) %>%
-  as_tibble() %>%
-  bind_cols(rice_accessions) %>%
-  select(ID, type, bio1 = MAT, bio5 = tmax, bio10 = twarm) %>%
-  write_csv(here('data/data-derived/rice_temperatures_past.csv'))
-
-bind_rows(gen_past, gen_mod, gen_future, .id = 'time') %>%
-  pivot_longer(bio1:bio10) %>%
-  ggplot(aes(value, color = time)) +
-  facet_wrap(~name, nrow = 3) +
-  geom_density()
-```
-
-## Bootstrapping Archaeological Dates
+### Bootstrapping Archaeological Dates
 
 To account for chronological uncertainty, we generated 5,000 bootstrap replicates, sampling from the radiocarbon dates' posterior density distribution and a uniform density for the archaeological phase dates.
 
@@ -770,7 +733,25 @@ boot_joined <- list(c14 = map_dfr(c14_splits$splits, sampler_c14, .id = 'rep'),
   mutate(time = time)
 ```
 
+
+### Extracting paleoclimate data
+
+We then extracted temperature variables from the CHELSA-TraCE21k v1.0 dataset at each sampled location in time and space. Finally, we constructed unique kernel density estimates of the temperature distributions at each rice occurrence point for every bootstrap replicate and temperature variable.
+
+```{r}
+arch_trace <- arch_dat %>%
+  st_extract(chelsa_trace, ., time_column = 'med_age', interpolate_time = TRUE) %>%
+  st_drop_geometry() %>%
+  bind_cols(select(arch_dat, -c(med_age, age_lower, age_upper)), .) %>%
+  remove_missing() # this shouldn't remove anything
+```
+
+```{r}
+saveRDS(arch_trace, here('data/data-derived/arch_trace.rds'))
+```
+
 Sample CHELSA at bootstrapped points in space-time.
+
 ```{r}
 trace_boot <- boot_joined %>%
   st_extract(chelsa_trace, ., time_column = 'time', interpolate_time = TRUE) %>%
@@ -783,6 +764,7 @@ trace_boot <- boot_joined %>%
 saveRDS(trace_boot, 'data/data-derived/trace_boot.rds')
 ```
 
+### Visualizing Archaeological Bootstraps
 ```{r}
 trace_boot %>%
   filter(time <= -2000) %>%
@@ -878,26 +860,61 @@ ggplot(arch_kde, aes(value, estimate)) +
   facet_wrap(~name, scales = 'free_y', nrow = 3)
 ```
 
-Plotting spatiotemporal kdes with and without rcarbon functions
+
+## Genetic Data
+
+We performed a genetic offset analysis to evaluate the potential maladaptation of Oryza sativa subspecies indica and japonica under projected climate change scenarios. The workflow entailed a gene-environment association analysis focusing on the first principal component of the three temperature variables (MAT, TWARM, TMAX), which explained over 81% of the environmental variance across the locations of both rice subspecies. This analysis corrected for population structure and identified outlier single nucleotide polymorphisms (SNPs) as candidate loci from each linkage group. We leveraged a large dataset of geotagged japonica and indica accessions and biallelic SNPs filtered for quality and imputed for missing genotypes. The genetic offset, indicative of maladaptation to predicted climates, was calculated using these loci. We averaged model predictions across each climate models (UKESM, MRI, IPSL, etc.) in the ensemble for each Shared Socioeconomic Pathway (SSP).
+
+Landraces are representative of the extant genetic diversity of crop species, and frequently exhibit local adaptations from sustained cultivation in specific geographic localities. Sampling landraces of a crop over a wide geographical area and sequencing their genomes can help identify putative adaptive variants associated with different environments. Genetic offset statistics provide measures of maladaptation under different or projected climate scenarios, based on association of genotypes with environmental variation [@gain2023].
+
+Using previously published datasets of geotagged rice landraces belonging to the subspecies O. sativa ssp. Indica [@gutaker2020] and O. sativa ssp. Japonica [@alam2021], we performed gene-environment association (GEA) analyses with lfmm2 function from the R package LEA (v3.12.2)—on the two subspecies separately—to identify variants associated with variation in temperature [@gain2021]. Temperature was represented by the first principal component of mean annual temperature, mean maximum daily temperature of the warmest month, and mean daily temperature of the warmest quarter from CHELSA V2 averages for the period 1981-2010. The first principal component represented 84.6% and 86.12% of the variation in the environmental data for the indica and japonica datasets, respectively. To correct for population structure in the GEA, we provided the number of ancestral populations, K, as the number of latent factors in our latent factor mixed models [@gain2021]. We selected the number of ancestral populations based on the number of principal components of the genotype matrix that explain a large proportion of the variance, the cross-entropy—a measure of model fit—of different values of K, and information from prior studies [@gutaker2020; @alam2021]. Variants identified in the GEA were clumped within 100 kb of each other, selecting the variant with the lowest p-value as the focal SNP.
+
+We used the genetic.offset function of the R package LEA [@gain2021] to calculate genomic offset statistics for rice landraces of O. sativa ssp. Indica and O. sativa ssp. Japonica while considering the temperature-associated variants as putative adaptive variants under the SSP1, SSP3, and SSP5 projected pathways that are used to derive greenhouse gas emission scenarios. We also calculated genomic offset statistics under the maximum estimated temperature at each location in the past 12,000 years. For both japonica and indica, the degree of maladaptation increases from SSP1, which is a best-case scenario with decreasing greenhouse gas emissions, to SSP3 to SSP5, which represents a worse-case scenario. Rice landraces appear relatively well-adapted under the past maximum temperature scenario, except for some varieties in the northern range of rice cultivation which is consistent with past findings that temperate-adapted northern varieties possibly started growing in these regions after a global temperature decline 4,200 years ago [@gutaker2020].
+
+To make predictions about where the climate is likely to be optimal for rice-growing in the future, we sampled 10,000 grids from across Asia and calculated genomic offset scores for each individual in the environment of each grid, for the three SSP scenarios. We interpret the grid with the lowest offset score as a possible future optimal location for each rice individual. As a measure of the extent of movement that would be required for adaptation, we subtract the absolute value of the current latitude of each rice individual from the absolute value of the centroid latitude of the optimal grid; positive values of this absolute latitudinal distance indicate movement away from the equator.
 
 ```{r}
-dens <- arch_trace %>%
-  mutate(age = time) %>%
-  filter(age < -2000) %>%
-  filter(age > -9000) %>%
-   mutate(mil = as.factor((age - age %% 1000) / 1000 + 1)) %>%
-  arrange(mil) %>%
-  group_by(mil) %>%
-  st_kde()
+rice_accessions <- list(indica = 'data/data-raw/indica_accessions.csv',
+                        japonica = 'data/data-raw/japonica_accessions.csv') %>%
+  map(read_csv) %>%
+  map(remove_missing) %>% # missing points data in Taiwan
+  map_dfr(st_as_sf, coords = c('LON', 'LAT'), crs = 4326, .id = 'type')
 
-ggplot(dens) +
-geom_sf(data = st_get_contour(dens))   +
-  facet_wrap(~mil)
 
-stkde1 <- stkde(x=cal, coords=st_coordinates(c14_cleaned), win=spatstat.geom::as.owin(asia_bbox_sf), sbw=5, cellres=1, focalyears=seq(9500, 2500, -1000), tbw=500, #bins=rice_bins,
-                backsight=500, outdir='data/data-derived/kde_test/', amount=1, verbose=FALSE)
+ggplot() +
+  geom_sf(data = countries_small) +
+  geom_sf(data = rice_accessions, aes(color = type))
+```
 
-walk(seq(9500, 2500, -1000), ~plot(stkde1, .))
+```{r}
+# this extracts the chelsa climate layers at the point locations of the rice accessions
+# the files are saved for processing in the separate genetic analysis notebook.
+gen_mod <- extract(chelsa_1km, rice_accessions, ID = FALSE) %>%
+  bind_cols(rice_accessions) %>%
+  select(ID, type, bio1:bio10) %>%
+  write_csv(here('data/data-derived/rice_temperatures_present.csv'))
+
+gen_future <- cmip6 %>%
+   st_extract(rice_accessions) %>%
+   as_tibble() %>%
+   bind_cols(map_dfr(1:45, ~rice_accessions)) %>%
+   select(ID, type, ssp, model, variable, temperature) %>%
+   pivot_wider(names_from = variable, values_from = temperature) %>%
+     write_csv(here('data/data-derived/rice_temperatures_future.csv'))
+
+gen_past <- chelsa_trace %>%
+  st_extract(rice_accessions) %>%
+  st_apply(1, max) %>%
+  as_tibble() %>%
+  bind_cols(rice_accessions) %>%
+  select(ID, type, bio1 = MAT, bio5 = tmax, bio10 = twarm) %>%
+  write_csv(here('data/data-derived/rice_temperatures_past.csv'))
+
+bind_rows(gen_past, gen_mod, gen_future, .id = 'time') %>%
+  pivot_longer(bio1:bio10) %>%
+  ggplot(aes(value, color = time)) +
+  facet_wrap(~name, nrow = 3) +
+  geom_density()
 ```
 
 ## Computational Reproducibility

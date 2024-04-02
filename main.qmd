@@ -83,6 +83,17 @@ countries_world <- ne_countries(scale = 'large') %>%
   st_crop(world_bbox_sf)
 sf_use_s2(TRUE)
 
+chelsa <- c('CHELSA_bio1_1981-2010_V.2.1.tif', 
+            'CHELSA_bio5_1981-2010_V.2.1.tif', 
+            'CHELSA_bio10_1981-2010_V.2.1.tif') %>%
+  here('data/data-raw', .) |>
+  read_stars(proxy = TRUE) |>
+  st_crop(asia_bbox_sf) |>
+  setNames(c('Mean annual temperature', 
+             'Mean maximum temperature of the warmest month', 
+             'Mean maximum temperature of the warmest quarter')) |>
+  merge()
+
 country_stats <- readRDS('data/data-derived/country_stats.rds') # country level stats
 
 arch_trace_dat <- readRDS(here('data/data-derived/arch_trace.rds')) |>
@@ -135,17 +146,6 @@ c <- ggplot(monfreda_occ) +
   geom_sf(data = countries_world, color = NA) +
   geom_sf(size = 0.0001, alpha = 0.1) +
   coord_sf(expand = FALSE)
-
-chelsa <- c('CHELSA_bio1_1981-2010_V.2.1.tif', 
-            'CHELSA_bio5_1981-2010_V.2.1.tif', 
-            'CHELSA_bio10_1981-2010_V.2.1.tif') %>%
-  here('data/data-raw', .) |>
-  read_stars(proxy = TRUE) |>
-  st_crop(asia_bbox_sf) |>
-  setNames(c('Mean annual temperature', 
-             'Mean maximum temperature of the warmest month', 
-             'Mean maximum temperature of the warmest quarter')) |>
-  merge()
 
 d <- ggplot() +
   geom_stars(data = chelsa[countries_small], downsample = c(20, 20, 0)) +
@@ -206,8 +206,8 @@ a <- fig2_dat %>%
                       scale = 1, 
                       jittered_points = TRUE, 
                       position = 'raincloud', 
-                      point_alpha = 0.1, 
-                      point_size = 0.25, 
+                      point_alpha = 0.01, 
+                      point_size = 0.1, 
                       quantile_lines = TRUE, 
                       quantiles = c(0.025, 0.975))+
   labs(x = 'Temperature', y = '') +
@@ -408,67 +408,66 @@ ggplot() +
 #| cache: true
 #| fig-cap: "Estimated genetic offsets of sampled rice landraces for past and future scenarios relative to current baseline. Each point represents a distinct population sampled for genetic analysis. Higher genetic offsets indicate a greater degree of maladaptation to the particular temperature regime. The 'past' scenario reflects the highest modeled temperature at each location over the past 12,000 years. The future scenarios are averaged across all climate models in the ensemble."
 
-offset_2.6 = readRDS("data/data-derived/for_plotting/offset_2.6_PC1_K8.rds")
-offset_7.0 = readRDS("data/data-derived/for_plotting/offset_7.0_PC1_K8.rds")
-offset_8.5 = readRDS("data/data-derived/for_plotting/offset_8.5_PC1_K8.rds")
-offset_past = readRDS("data/data-derived/for_plotting/offset_past_PC1_K8.rds")
-ind_offset_2.6 = readRDS("data/data-derived/for_plotting/ind_offset_2.6.rds")
-ind_offset_7.0 = readRDS("data/data-derived/for_plotting/ind_offset_7.0.rds")
-ind_offset_8.5 = readRDS("data/data-derived/for_plotting/ind_offset_8.5.rds")
-ind_offset_past = readRDS("data/data-derived/for_plotting/ind_offset_past.rds")
+offset_2.6 <- readRDS("data/data-derived/for_plotting/offset_2.6_PC1_K8.rds")
+offset_7.0 <- readRDS("data/data-derived/for_plotting/offset_7.0_PC1_K8.rds")
+offset_8.5 <- readRDS("data/data-derived/for_plotting/offset_8.5_PC1_K8.rds")
+offset_past <- readRDS("data/data-derived/for_plotting/offset_past_PC1_K8.rds")
+ind_offset_2.6 <- readRDS("data/data-derived/for_plotting/ind_offset_2.6.rds")
+ind_offset_7.0 <- readRDS("data/data-derived/for_plotting/ind_offset_7.0.rds")
+ind_offset_8.5 <- readRDS("data/data-derived/for_plotting/ind_offset_8.5.rds")
+ind_offset_past <- readRDS("data/data-derived/for_plotting/ind_offset_past.rds")
 
-inds_geotagged = readRDS("data/data-derived/for_plotting/indica_geotagged.rds")
-japs_geotagged = readRDS("data/data-derived/for_plotting/japonica_geotagged.rds")
+inds_geotagged <- readRDS("data/data-derived/for_plotting/indica_geotagged.rds")
+japs_geotagged <- readRDS("data/data-derived/for_plotting/japonica_geotagged.rds")
 
 
 # this is the order of the japonica accessions in the genotype matrix
-japs = read.table("data/data-derived/for_plotting/japs_order.txt")
-inds = read.table("data/data-derived/for_plotting/inds_order.txt")
+japs <- read.table("data/data-derived/for_plotting/japs_order.txt")
+inds <- read.table("data/data-derived/for_plotting/inds_order.txt")
 
-indica_dat = tibble(inds$V1,
+indica_dat <- tibble(inds$V1,
                   ind_offset_2.6$offset,ind_offset_2.6$distance,
                   ind_offset_7.0$offset,ind_offset_7.0$distance,
                   ind_offset_8.5$offset,ind_offset_8.5$distance,
                   ind_offset_past$offset,ind_offset_past$distance) %>%
-  setNames(c("ID","offset_2.6","rona_2.6",
-                   "offset_7.0","rona_7.0",
-                   "offset_8.5","rona_8.5",
-                   "offset_past","rona_past"
+  setNames(c("ID","SSP1-2.6","rona_2.6",
+                   "SSP3-7.0","rona_7.0",
+                   "SSP5-8.5","rona_8.5",
+                   "Holocene", "rona_past"
                    )) %>%
-    left_join(inds_geotagged) %>%
+  left_join(inds_geotagged, by = 'ID') %>%
   select(-starts_with('rona')) %>%
-  pivot_longer(starts_with('offset')) %>%
+  pivot_longer(starts_with('SSP') | starts_with('Hol')) %>%
   arrange(value) %>%
   rename(scenario = name)
-
 
 japonica_dat <- tibble(japs$V1,
                   offset_2.6$offset,offset_2.6$distance,
                   offset_7.0$offset,offset_7.0$distance,
                   offset_8.5$offset,offset_8.5$distance,
                   offset_past$offset,offset_past$distance) %>%
-  setNames(c("ID",
-                   "offset_2.6","rona_2.6",
-                   "offset_7.0","rona_7.0",
-                   "offset_8.5","rona_8.5",
-                   "offset_past","rona_past"
+  setNames(c("ID","SSP1-2.6","rona_2.6",
+                   "SSP3-7.0","rona_7.0",
+                   "SSP5-8.5","rona_8.5",
+                   "Holocene", "rona_past"
                    )) %>%
-  left_join(japs_geotagged) %>%
+  left_join(japs_geotagged, by = 'ID') %>%
   select(-starts_with('rona')) %>%
-  pivot_longer(starts_with('offset')) %>%
+  pivot_longer(starts_with('SSP') | starts_with('Hol')) %>%
   arrange(value) %>%
   rename(scenario = name)
 
-offset_dat <- list(indica = indica_dat,
-     japonica = japonica_dat) %>%
+offset_dat <- list(Indica = indica_dat,
+     Japonica = japonica_dat) %>%
   bind_rows(.id = 'var')
 
 ggplot(offset_dat) +
-  geom_sf(data = countries, color = 'white') +
+  geom_sf(data = countries_small, color = 'white') +
   geom_point(aes(LON, LAT, color = value)) +
   scale_color_viridis_c(option = 'magma', name = 'Offset') +
   facet_grid(var~scenario) + 
-  labs(x = '', y = '')
+  labs(x = '', y = '') +
+  coord_sf(expand = FALSE)
 ```
 
 # Discussion
@@ -499,7 +498,7 @@ Past climate data were derived from the CHELSA-TraCE21k product, a downscaled ve
 
 We collected rice occurrence data from a variety of sources combining information from satellites, administrative statistics, and herbarium collections. Our goal was to assess the sensitivity of our results to various modes of data collection, sampling, spatiotemporal scale, and other potential sources of bias.
 
--   Satellite-based estimates of lowland rice extent in Asia from the International Rice Research Institute [@nelson2015]. This dataset employs high-resolution (500m) presence-absence markers from MODIS observations and offers relatively uniform sampling across both temperate and tropical regions. It provides a more objective approach than spatially biased occurrence records. However, its coverage is limited to East and Southeast Asia and it may poorly distinguish intercropped wheat and rice in Northeast China and natural wetlands and paddy rice cultivation in Indonesia. To minimize such sampling issues, we aggregated the 500m data into 5km grid cells, dropping occurrences with less than 10% coverage to minimize false positives from low-pixel observations. Subsequent analyses of these data proved robust to the exact resolution and coverage threshold used.
+-   Satellite-based estimates of lowland rice extent in Asia from the International Rice Research Institute [@nelson2015]. This dataset employs high-resolution (500m) presence-absence markers from MODIS observations and offers relatively uniform sampling across both temperate and tropical regions. It provides a more objective approach than spatially biased occurrence records. However, its coverage is limited to East and Southeast Asia and it may poorly distinguish intercropped wheat and rice in Northeast China and natural wetlands and paddy rice cultivation in Indonesia. To minimize such sampling issues, we aggregated the 500m data into 5km grid cells, dropping occurrences with less than 20% coverage to minimize false positives from low-pixel observations. Subsequent analyses of these data proved robust to the exact resolution and coverage threshold used.
 
 -   Estimates of paddy rice harvested areas around the year 2000 [@monfreda2008]. This dataset, integrates satellite-based estimates of cropland with sub-national statistics for rice harvested areas. It utilizes geospatial cropland maps to downscale harvest area and yield census data and offers global coverage at approximately 10km resolution. Countries that lack detailed administrative data at the subnational level, such as Laos and Kazakhstan, can exhibit overly smoothed areas. The use of harvested area as a metric can be misleading in regions with multiple annual harvests, leading to double or triple counting.
 
@@ -543,7 +542,7 @@ This work was supported by a grant from the Zegar Family Foundation.
 
 ```{r}
 #| label: tbl-quantiles
-#| tbl-cap: "Present-day rice extent quantiles across three datasets of varying resolution and spatiotemporal support."
+#| tbl-cap: "Present-day rice extent quantiles across three datasets of varying resolution and spatiotemporal support, compared to those calculated from archaeological sites in Asia throughout the Holocene."
 
 quants_mod_monfreda <- monfreda_occ %>%
   st_drop_geometry() %>%
@@ -563,22 +562,34 @@ quants_mod_gbif <- occ_dat %>%
   round(1) %>%
   mutate(quantile = quantiles, .before = 1)
 
+quants_arch <- arch_trace_dat %>%
+  st_drop_geometry() %>%
+  select(bio1 = MAT, bio5 = tmax, bio10 = twarm) %>%
+  mutate(across(everything(), ~units::set_units(.x, 'degree_C'))) %>%
+  reframe(across(everything(), 
+                   ~quantile(.x, quantiles, type = 8))) %>%
+  round(1) %>%
+  mutate(quantile = quantiles, .before = 1)
+
 left_join(quants_mod, quants_mod_monfreda, by = 'quantile') %>%
   left_join(quants_mod_gbif, by = 'quantile') %>%
+  left_join(quants_arch, by = 'quantile') %>%
   units::drop_units() %>% # do we want celsius units?
   mutate(quantile = set_units(quantile * 100, '%')) %>% 
-  select(quantile, bio1.x, bio1.y, bio1, bio5.x, bio5.y, bio5, bio10.x, bio10.y, bio10) %>%
-  setNames(c('Quantile', rep(c('IRRI', 'Monfreda', 'GBIF'), 3))) %>%
+  select(quantile, bio1.x, bio1.y, bio1.x.x, bio1.y.y, bio5.x, bio5.y, bio5.x.x, bio5.y.y, bio10.x, bio10.y, bio10.x.x, bio10.y.y) %>%
+  setNames(c('Quantile', rep(c('IRRI', 'Mon.', 'GBIF', 'Arch.'), 3))) %>%
   kableExtra::kbl() %>%
   kableExtra::kable_styling('striped') %>%
-  kableExtra::add_header_above(tibble(names = c('', 'Mean Annual Temperature', 'Max Temp. of the Warmest Month', 'Max Temp. of the Warmest Quarter'), spans = c(1,3,3,3)))  #%>%
+  kableExtra::add_header_above(tibble(names = c('', 'Mean Annual Temperature', 'Max Temp. of the Warmest Month', 'Max Temp. of the Warmest Quarter'), spans = c(1,4,4,4)))  #%>%
   #kableExtra::save_kable('data/data-derived/quantiles_table.png')
 ```
 
-![Present-day rice extent quantiles across three datasets of varying resolution and spatiotemporal support.](data/data-derived/quantiles_table.png){#tbl-quantiles-2 width="6in"}
+![Present-day rice extent quantiles across three datasets of varying resolution and spatiotemporal support, compared to those calculated from archaeological sites in Asia throughout the Holocene](data/data-derived/quantiles_table.png){#tbl-quantiles-2 width="6in"}
 
 ```{r}
 #| label: fig-country-summaries
+#| fig-width: 7
+#| fig-height: 4
 #| fig-cap: "Projected increases in land area surpassing key temperature thresholds in each of the top 15 rice-producing countries in east Asia."
 country_stats %>% 
   ggplot(aes(ssp, percent, group = variable, color = variable)) +
@@ -746,9 +757,8 @@ eof / amp + plot_layout(heights = c(2,1))
 ```{r}
 #| label: fig-bootstrap
 #| fig-width: 6
-#| fig-height: 8
+#| fig-height: 6
 #| fig-cap: "A) Bootstrapped kernel density estimates of rice's thermal extent throughout the Holocene. Bootstrap resampling accounts for uncertainty in radiocarbon and phase-based dating of archaeological rice finds. Contemporary temperature tresholds indicated in red. B) Estimated 97.5% quantiles from the bootstrapped dataset. Contemporary quantiles indicated in red."
-#| cache: true
 
 trace_boot <- readRDS('data/data-derived/trace_boot.rds')
 
@@ -783,7 +793,7 @@ boot_2 <- trace_boot %>%
     theme_bw() +
     geom_vline(data = quant_dat, aes(xintercept = value), linetype = 2, color = 'red')
 
-rm(trace_boot)
+rm(trace_boot, quant_dat)
 
 boot_1 + boot_2 +  plot_annotation(tag_levels = 'A')
 ```
