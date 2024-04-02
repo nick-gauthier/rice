@@ -394,7 +394,7 @@ ggplot() +
 
 #### Combined
 
-Thin the two sets of occurrence records to a 1km grid and combine. So let's combine this with the GBIF occurrence above. It definitely helps us sample the temperate varieties better, but its still a minor influence relative to the numbers of gbif points. also include These are predictions from a classifier that use climate data, so not exactly useful here but interesting to see. Aus is grown in summer before monsoon and harvested in fall -- not great quality but as a backup
+Thin the two sets of occurrence records to a 1km grid and combine. So let's combine this with the GBIF occurrence above. It definitely helps us sample the temperate varieties better, but its still a minor influence relative to the numbers of gbif points. also include These are predictions from a classifier that use climate data, so not exactly useful here but interesting to see.
 
 ```{r}
 rufip_thin <- dismo::gridSample(
@@ -447,14 +447,25 @@ ggplot(pred_var, aes(color = ensemble)) +
   scale_color_brewer(palette = 'Spectral') +
   geom_sf(data = coasts, color = 'black')
 
+#gutaker et al accessions (used for genetic analysis later)
+rice_accessions <- list(indica = 'data/data-raw/indica_accessions.csv',
+                        japonica = 'data/data-raw/japonica_accessions.csv') %>%
+  map(read_csv) %>%
+  map(remove_missing) %>% # missing points data in Taiwan
+  map_dfr(st_as_sf, coords = c('LON', 'LAT'), crs = 4326, .id = 'type')
+
 comb_final <- comb %>%
   filter(!(type %in% c('O. rufipogon', 'rufipogon'))) %>%
   bind_rows(pred_var) %>%
+  bind_rows(rice_accessions) %>%
   st_coordinates() %>%
   dismo::gridSample(r = chelsa_mask) %>% 
   as_tibble() %>%
-  st_as_sf(coords = c('X', 'Y'), crs = 4326) %>%
-  mutate(presence = 1)
+  st_as_sf(coords = c('X', 'Y'), crs = 4326)
+
+ggplot() +
+  geom_sf(data = comb_final, size = .5) +
+  geom_sf(data = coasts)
 
 ggplot() +
   geom_sf(data = comb_final %>% st_crop(asia_bbox_sf), size = .5) +
@@ -530,7 +541,7 @@ ggplot() +
   geom_sf(data = coasts_world, color = 'black') 
 
 ggplot() +
-  geom_stars(data = monfreda_fraction > 0.01) +
+  geom_stars(data = monfreda_fraction > 0.05) +
   scale_fill_manual(values = c('grey', 'red'), na.value = NA, guide = FALSE) +
   geom_sf(data = coasts_world, color = 'black') 
 ```
@@ -538,11 +549,10 @@ ggplot() +
 ```{r}
 monfreda_occ <- monfreda_fraction %>%
   rast() %>%
-  clamp(lower = 0.05, values = FALSE) %>% 
+  clamp(lower = 0.05, values = FALSE) %>% # minimum 5% coverage fraction, equivalent to irri given resolution differences
   as.data.frame(xy = TRUE) %>%
   st_as_sf(coords = c('x', 'y'), crs = 4326) %>%
-  mutate(presence = 1) %>%
-  dplyr::select(presence, extent = area_f) %>%
+  dplyr::select(extent = area_f) %>%
   bind_cols(., terra::extract(chelsa_10km, ., ID = FALSE))
 
 ggplot(monfreda_occ) +
