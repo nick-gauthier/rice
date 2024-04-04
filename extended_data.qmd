@@ -1,0 +1,357 @@
+---
+title: "Extended Data"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: setup
+#| include: false
+knitr::opts_chunk$set(dev = 'png', echo = FALSE, results = FALSE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(sf)
+library(stars)
+library(ggridges)
+library(patchwork)
+library(units)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(here)
+library(eks)
+
+theme_set(theme_bw())
+
+# define the study area
+asia_bbox_sf <- st_bbox(c(xmin = 60, xmax = 150, ymin = -11, ymax = 54), crs = 4326)
+world_bbox_sf <- st_bbox(c(xmin = -130, xmax = 155, ymin = -40, ymax = 60), crs = 4326)
+
+# get country boundaries shapefile for plotting
+sf_use_s2(FALSE)
+countries <- ne_countries(scale = 'large') %>% 
+  st_crop(asia_bbox_sf)
+countries_small<- ne_countries() %>%
+  st_crop(asia_bbox_sf)
+coasts <- ne_coastline() %>%
+  st_crop(asia_bbox_sf)
+coasts_world <- ne_coastline() %>% 
+  st_crop(world_bbox_sf)
+countries_world <- ne_countries(scale = 'large') %>% 
+  st_crop(world_bbox_sf)
+sf_use_s2(TRUE)
+country_stats <- readRDS('data/data-derived/country_stats.rds') # country level stats
+
+
+load(here('data/data-derived/occurrence_data.RData'))
+erb_decadal <- readRDS('data/data-derived/erb_decadal.rds')
+
+arch_trace_dat <- readRDS(here('data/data-derived/arch_trace.rds')) |>
+  mutate(mil = (med_age - med_age %% 1000) / 1000 + 1) |>
+  filter(between(mil, -9, -2)) |> # reduces to 542 unique sites
+  mutate(mil = as.factor(mil)) 
+
+fig2_dat <- irri_occ %>%
+  st_drop_geometry() %>%
+  select(bio1, bio5, bio10) %>%
+  mutate(across(everything(), ~units::set_units(.x, 'degree_C')))
+
+quantiles <- c(0.01, 0.025, 0.05, 0.1, 0.9, 0.95, 0.975, 0.99)
+
+quants_mod <- fig2_dat %>%
+  reframe(across(everything(), 
+                   ~quantile(.x, quantiles, type = 8))) %>%
+  round(1) %>%
+  mutate(quantile = quantiles, .before = 1)
+
+quant_975 <- filter(quants_mod, quantile == 0.975)
+bio1_limit <- quant_975$bio1
+bio5_limit <- quant_975$bio5
+bio10_limit <- quant_975$bio10
+
+model_names <- c('gfdl', 'ipsl', 'mpi', 'mri', 'ukesm')
+ssp_names <- c('ssp126', 'ssp370', 'ssp585')
+
+cmip6 <-  model_names %>%
+  map(paste,  ssp_names, sep = '/' ) %>%
+  map_depth(1, ~paste0('~/Dropbox (UFL)/Data/CHELSA/CMIP6/2071-2100/', .x, '/bio') %>% as.list()) %>%
+  map_depth(2, ~list.files(.x, full.names = TRUE, pattern = '*_bio1_|_bio5_|_bio10_*')) %>%
+  map_depth(2, ~read_stars(.x) %>%
+              setNames(c('bio1', 'bio10', 'bio5')) %>%
+              st_redimension()) %>%
+  map(~do.call('c', .x) %>% 
+        setNames(c('SSP1-2.6', 'SSP3-7.0', 'SSP5-8.5')) %>% 
+        st_redimension()) %>%
+  do.call('c', .) %>%
+  setNames(model_names) %>%
+  st_redimension() %>%
+  st_set_dimensions(names = c('x', 'y', 'variable', 'ssp', 'model')) %>%
+  setNames('temperature') %>%
+  .[countries]
+```
+
+```{r}
+#| label: tbl-quantiles
+#| tbl-cap: "Present-day rice extent quantiles across three datasets of varying resolution and spatiotemporal support, compared to those calculated from archaeological sites in Asia throughout the Holocene."
+
+quants_mod_monfreda <- monfreda_occ %>%
+  st_drop_geometry() %>%
+  select(bio1, bio5, bio10) %>%
+  mutate(across(everything(), ~units::set_units(.x, 'degree_C'))) %>%
+  reframe(across(everything(), 
+                   ~quantile(.x, quantiles, type = 8))) %>%
+  round(1) %>%
+  mutate(quantile = quantiles, .before = 1)
+
+quants_mod_gbif <- occ_dat %>%
+  st_drop_geometry() %>%
+  select(bio1, bio5, bio10) %>%
+  mutate(across(everything(), ~units::set_units(.x, 'degree_C'))) %>%
+  reframe(across(everything(), 
+                   ~quantile(.x, quantiles, type = 8))) %>%
+  round(1) %>%
+  mutate(quantile = quantiles, .before = 1)
+
+quants_arch <- arch_trace_dat %>%
+  st_drop_geometry() %>%
+  select(bio1 = MAT, bio5 = tmax, bio10 = twarm) %>%
+  mutate(across(everything(), ~units::set_units(.x, 'degree_C'))) %>%
+  reframe(across(everything(), 
+                   ~quantile(.x, quantiles, type = 8))) %>%
+  round(1) %>%
+  mutate(quantile = quantiles, .before = 1)
+
+left_join(quants_mod, quants_mod_monfreda, by = 'quantile') %>%
+  left_join(quants_mod_gbif, by = 'quantile') %>%
+  left_join(quants_arch, by = 'quantile') %>%
+  units::drop_units() %>% # do we want celsius units?
+  mutate(quantile = set_units(quantile * 100, '%')) %>% 
+  select(quantile, bio1.x, bio1.y, bio1.x.x, bio1.y.y, bio5.x, bio5.y, bio5.x.x, bio5.y.y, bio10.x, bio10.y, bio10.x.x, bio10.y.y) %>%
+  setNames(c('Quantile', rep(c('IRRI', 'Mon.', 'GBIF', 'Arch.'), 3))) %>%
+  kableExtra::kbl() %>%
+  kableExtra::kable_styling('striped') %>%
+  kableExtra::add_header_above(tibble(names = c('', 'Mean Annual Temperature', 
+                                                'Max Temp. of the Warmest Month', 
+                                                'Max Temp. of the Warmest Quarter'), 
+                                      spans = c(1,4,4,4)))  #%>%
+  #kableExtra::save_kable('data/data-derived/quantiles_table.png')
+```
+
+![Present-day rice extent quantiles across three datasets of varying resolution and spatiotemporal support, compared to those calculated from archaeological sites in Asia throughout the Holocene](data/data-derived/quantiles_table.png){#tbl-quantiles-2 width="4in"}
+
+```{r}
+#| label: fig-country-summaries
+#| fig-width: 7
+#| fig-height: 4
+#| fig-cap: "Projected increases in land area surpassing key temperature thresholds in each of the top 15 rice-producing countries in east Asia."
+country_stats %>% 
+  ggplot(aes(ssp, percent, group = variable, color = variable)) +
+  facet_wrap(~name) +
+  scale_color_manual(values = c('#abdda4', '#fdae61', '#d7191c'
+)) +
+  geom_line(linewidth = 1.2) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+#| label: tbl-country-summaries-table
+#| tbl-cap: "Projected increases in land area surpassing key temperature thresholds in each of the top 15 rice-producing countries in east Asia."
+
+# this is total land area??
+# country_stats %>%
+#   filter(variable == 'Mean annual temperature') %>%
+#   select(-percent, -area) %>%
+#   pivot_wider(names_from = ssp, 
+#               values_from = sum) %>%
+#   select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
+#   summarise(across(Present:`SSP5-8.5`, ~sum(.x))) %>%
+#   mutate(across(everything(), ~.x / Present))
+
+country_stats %>%
+  mutate(percent = round(percent)) %>%
+  filter(variable == 'Mean annual temperature') %>%
+  select(-sum, -area) %>%
+  pivot_wider(names_from = ssp, 
+              values_from = percent) %>%
+  select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
+  knitr::kable()
+  #gt::gt() %>%
+  #gt::tab_header(title = "Percent land area surpassing MAT threshold")
+# 
+# country_stats %>%
+#   mutate(percent = round(percent)) %>%
+#   filter(variable == 'Max temperature of warmest quarter') %>%
+#     select(-sum, -area) %>%
+#   pivot_wider(names_from = ssp, 
+#               values_from = percent) %>%
+#   select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
+#   gt::gt() %>%
+#   gt::tab_header(title = "Percent land area surpassing T-WARM threshold")
+# 
+# country_stats %>%
+#   mutate(percent = round(percent)) %>%
+#   filter(variable == 'Max temperature of warmest month') %>%
+#     select(-sum, -area) %>%
+#   pivot_wider(names_from = ssp, 
+#               values_from = percent) %>%
+#   select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
+#   gt::gt() %>%
+#   gt::tab_header(title = "Percent land area surpassing T-HOT threshold")
+```
+
+```{r}
+#| label: fig-niche-all-models-bio1
+#| cache: true
+#| fig-width: 8
+#| fig-height: 12
+#| fig-cap: Predicted changes in mean annual temperature over currently cultivated rice areas in Asia for multiple CMIP6 ensemble members.
+
+ggplot() +
+  geom_stars(data = slice(cmip6, 'variable', 1) > units::drop_units(bio1_limit), downsample = 20) +
+  facet_grid(model~ssp) +
+  scale_fill_manual(values = c('grey', 'red'), 
+                    name = paste0('MAT > ', bio1_limit), 
+                    na.value = NA, na.translate = FALSE) +
+  geom_sf(data = coasts) +
+  labs(x = '', y = '')
+```
+
+```{r}
+#| label: fig-niche-all-models-bio10
+#| cache: true
+#| fig-width: 8
+#| fig-height: 12
+#| fig-cap: Predicted changes in mean maximum temperature of the warmest quarter over currently cultivated rice areas in Asia for multiple CMIP6 ensemble members.
+
+ggplot() +
+  geom_stars(data = slice(cmip6, 'variable', 2) > units::drop_units(bio10_limit), downsample = 20) +
+  facet_grid(model~ssp) +
+  scale_fill_manual(values = c('grey', 'red'), 
+                       name = paste0('twarm > ', bio10_limit),
+                    na.value = NA, na.translate = FALSE) +
+  geom_sf(data = coasts) +
+  labs(x = '', y = '')
+```
+
+```{r}
+#| label: fig-niche-all-models-bio5
+#| cache: true
+#| fig-width: 8
+#| fig-height: 12
+#| fig-cap: Predicted changes in mean maximum temperature of the warmest month over currently cultivated rice areas in Asia for multiple CMIP6 ensemble members.
+
+ggplot() +
+  geom_stars(data = slice(cmip6, 'variable', 3) > units::drop_units(bio5_limit), downsample = 20) +
+  facet_grid(model~ssp) +
+  scale_fill_manual(values = c('grey', 'red'), 
+                    name = paste0('tmax > ', bio5_limit), 
+                    na.value = NA, na.translate = FALSE) +
+  geom_sf(data = coasts) +
+  labs(x = '', y = '')
+```
+
+```{r}
+#| label: ens
+#| fig-width: 6
+#| fig-height: 4
+#| cache: true
+
+ens_mean <- st_apply(cmip6, 1:4, mean)
+
+ggplot() +
+  geom_stars(data = slice(ens_mean, 'variable', 2) > units::drop_units(bio10_limit), downsample = 20) +
+  facet_wrap(~ssp) +
+  scale_fill_manual(values = c('grey', 'red'), 
+                    name = paste0('twarm > ', bio10_limit), 
+                    na.value = NA, na.translate = FALSE) +
+  geom_sf(data = coasts) +
+  labs(x = '', y = '')
+
+ggplot() +
+  geom_stars(data = slice(ens_mean, 'variable', 1) > units::drop_units(bio1_limit), downsample = 20) +
+  facet_wrap(~ssp) +
+  scale_fill_manual(values = c('grey', 'red'), 
+                    name = paste0('MAT > ', bio1_limit), 
+                    na.value = NA, na.translate = FALSE) +
+  geom_sf(data = coasts) +
+  labs(x = '', y = '')
+
+ggplot() +
+  geom_stars(data = slice(ens_mean, 'variable', 3) > units::drop_units(bio5_limit), downsample = 20) +
+  facet_wrap(~ssp) +
+  scale_fill_manual(values = c('grey', 'red'), 
+                    name = paste0('tmax > ', bio5_limit), 
+                    na.value = NA, na.translate = FALSE) +
+  geom_sf(data = coasts) +
+  labs(x = '', y = '')
+```
+
+```{r}
+#| label: fig-erb-recon
+#| fig-width: 6
+#| fig-height: 6
+#| fig-cap: "EOF analysis of Holocene temperature reconstruction reveals two leading modes of decadal-scale variability that collectively explain 86% of the decadal scale temperature variability. We focus on the period from 7000 to 1000 years ago to remove impacts from the last deglaciation and contemporary greenhouse gas emissions. These two modes reflect trends in North and South Asian variability. The northern part of China has become cooler while the South has become warmer over time."
+  
+library(tidyEOF)
+pat <- get_patterns(erb_decadal %>% filter(between(time, -7000, -1000)), 
+                    k = 2, scale = TRUE, rotate = FALSE)
+eof <- plot_eofs(pat) +
+  geom_sf(data = coasts) #+
+  #geom_sf(data = arch_trace_dat %>%
+  #filter(med_age < -2000), size = 0.5)
+
+amp <- plot_amps(pat, scaled = FALSE) + 
+  geom_smooth()
+
+eof / amp + plot_layout(heights = c(2,1))
+```
+
+```{r}
+#| label: fig-bootstrap
+#| fig-width: 6
+#| fig-height: 6
+#| fig-cap: "A) Bootstrapped kernel density estimates of rice's thermal extent throughout the Holocene. Bootstrap resampling accounts for uncertainty in radiocarbon and phase-based dating of archaeological rice finds. Contemporary temperature tresholds indicated in red. B) Estimated 97.5% quantiles from the bootstrapped dataset. Contemporary quantiles indicated in red."
+
+trace_boot <- readRDS('data/data-derived/trace_boot.rds')
+
+# contemporary quantiles for plotting
+quant_dat <- quant_975 |>
+               select(-quantile) |>
+               setNames(c('MAT', 'tmax', 'twarm')) |>
+              pivot_longer(everything())
+
+boot_1 <- trace_boot %>%
+  filter(time <= -2000) %>%
+  select(rep, MAT:twarm) %>%
+  pivot_longer(MAT:twarm) %>%
+  group_by(rep, name) %>%
+  tidy_kde() %>%
+ggplot(aes(value, estimate)) +
+  geom_line(alpha = 0.01, aes(group = rep)) +
+  facet_wrap(~name, scales = 'free_y', nrow = 3) +
+  geom_vline(data = quant_dat, aes(xintercept = as.numeric(value)), linetype = 2, color = 'red') +
+  labs(x = 'Temperature')
+
+boot_2 <- trace_boot %>%
+  filter(time <= -2000) %>%
+  pivot_longer(MAT:twarm, values_to = 'temperature') %>%
+  mutate(temperature = units::set_units(temperature, 'degree_c')) %>%
+  group_by(rep, name) %>%
+  reframe(value = quantile(temperature, 0.975, type = 8)) %>%
+  ggplot(aes(value)) +
+    geom_histogram() +
+    facet_wrap(~name, scales = 'free_x', nrow = 3) +
+    labs(x = 'Temperature') +
+    theme_bw() +
+    geom_vline(data = quant_dat, aes(xintercept = value), linetype = 2, color = 'red')
+
+rm(trace_boot, quant_dat)
+
+boot_1 + boot_2 +  plot_annotation(tag_levels = 'A')
+```
+
+```{r eval = FALSE}
+here('data/data-derived/indica_permut_offset_2.6') %>%
+  list.files(full.names = TRUE) %>%
+  .[[1]] %>%
+  readRDS()
+```

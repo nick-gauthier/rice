@@ -57,11 +57,10 @@ library(sf)
 library(stars)
 library(ggridges)
 library(patchwork)
-library(units)
 library(rnaturalearth)
 library(rnaturalearthdata)
 library(here)
-library(eks)
+library(units)
 
 theme_set(theme_bw())
 
@@ -94,15 +93,22 @@ chelsa <- c('CHELSA_bio1_1981-2010_V.2.1.tif',
              'Mean maximum temperature of the warmest quarter')) |>
   merge()
 
-country_stats <- readRDS('data/data-derived/country_stats.rds') # country level stats
-
 arch_trace_dat <- readRDS(here('data/data-derived/arch_trace.rds')) |>
   mutate(mil = (med_age - med_age %% 1000) / 1000 + 1) |>
   filter(between(mil, -9, -2)) |> # reduces to 542 unique sites
   mutate(mil = as.factor(mil)) 
 
 load(here('data/data-derived/occurrence_data.RData'))
-erb_decadal <- readRDS('data/data-derived/erb_decadal.rds')
+
+auto_set_format <- function() {
+  if (knitr::is_latex_output()) {
+    options(knitr.table.format = 'latex')
+  } else {
+    options(knitr.table.format = 'html')
+  }
+}
+
+auto_set_format()
 ```
 
 # Introduction
@@ -184,7 +190,7 @@ bio5_limit <- quant_975$bio5
 bio10_limit <- quant_975$bio10
 ```
 
-The vast majority of contemporary rice is grown in regions with MAT below `r bio1_limit`℃, TWARM of `r bio10_limit`℃, and TMAX of `r bio5_limit`℃ (@fig-kde-modern). Although we primarily report results from the satellite-based estimates of lowland rice extent over Asia produced by the International Rice Research Institute [@nelson2015] due to its favorable balance of spatial resolution and extent, results from other rice extent datasets with variable spatial extent, resolution, and time span are consistent with these findings (Supplementary @tbl-quantiles-2). There is much more variability across data sources in lower temperature thresholds---reflecting the greater adaptability of rice to colder temperatures through breeding, management, and growing season---than upper temperature thresholds. These empirical thresholds are consistent with physiological parameters inferred from field-scale agronomic studies and expert knowledge, which estimate that the optimum temperature range for reproductive yield in rice is 23℃-26℃, biomass and pollen viability declines when maximum temperatures exceed 33℃, and crop viability reaches zero at approximately 40℃ when photosynthesis begins to shut down in C3 plants like rice [@hatfield2011]. In other words, rice today is not grown in regions where the mean annual temperature exceeds its optimum temperature for reproduction, warm-season maximum temperatures exceed its optimum for pollen viability, and summer heat extremes will reliably stop photosynthesis.
+The vast majority of contemporary rice is grown in regions with MAT below `r bio1_limit`℃, TWARM of `r bio10_limit`℃, and TMAX of `r bio5_limit`℃ (@fig-kde-modern). Although we primarily report results from the satellite-based estimates of lowland rice extent over Asia produced by the International Rice Research Institute [@nelson2015] due to its favorable balance of spatial resolution and extent, results from other rice extent datasets with variable spatial extent, resolution, and time span are consistent with these findings (Supplementary Table 1). There is much more variability across data sources in lower temperature thresholds---reflecting the greater adaptability of rice to colder temperatures through breeding, management, and growing season---than upper temperature thresholds. These empirical thresholds are consistent with physiological parameters inferred from field-scale agronomic studies and expert knowledge, which estimate that the optimum temperature range for reproductive yield in rice is 23℃-26℃, biomass and pollen viability declines when maximum temperatures exceed 33℃, and crop viability reaches zero at approximately 40℃ when photosynthesis begins to shut down in C3 plants like rice [@hatfield2011]. In other words, rice today is not grown in regions where the mean annual temperature exceeds its optimum temperature for reproduction, warm-season maximum temperatures exceed its optimum for pollen viability, and summer heat extremes will reliably stop photosynthesis.
 
 ```{r}
 #| label: fig-kde-modern
@@ -295,13 +301,13 @@ arch_map /
 ```
 
 
-These repeated instances of rice's diversification and shifting ranges throughout its history primarily reflect genetic and cultural adaptations to cooler temperatures and shorter growing seasons. However, its upper temperature limits have remained a constant barrier to dispersal. No rice remains are recovered from regions experiencing greater than 28℃ MAT (@fig-arch-kde B), in spite of warmer conditions overall during this period. These results are robust to uncertainty in both the dating of these archaeological remains as well as spatial biases in archaeological site preservation and recovery (Supplementary Figure @fig-bootstrap). Out of 803 archaeological sites with rice remains, none have experienced MAT of greater than `r bio1_limit`℃ fewer than ten, located in the Thar desert in Pakistan (a highly arid environment not adapted to rice cultivation), have rice in areas that experienced a TMAX of greater than `r bio5_limit`℃ (@fig-arch-kde C). These appear to be outliers resulting from dating uncertainty (Supplementary Figure @fig-bootstrap b), as well as long-distance trade in rice rather than local cultivation. Regardless, this period of higher temperatures was a relatively extreme century, during which historical and archaeological evidence attest to significant cultural disruption in the impacted regions (Supplementary Figure @fig-erb-recon).
+These repeated instances of rice's diversification and shifting ranges throughout its history primarily reflect genetic and cultural adaptations to cooler temperatures and shorter growing seasons. However, its upper temperature limits have remained a constant barrier to dispersal. No rice remains are recovered from regions experiencing greater than 28℃ MAT (@fig-arch-kde B), in spite of warmer conditions overall during this period. These results are robust to uncertainty in both the dating of these archaeological remains as well as spatial biases in archaeological site preservation and recovery (Extended Data Figure 9). Out of 803 archaeological sites with rice remains, none have experienced MAT of greater than `r bio1_limit`℃ fewer than ten, located in the Thar desert in Pakistan (a highly arid environment not adapted to rice cultivation), have rice in areas that experienced a TMAX of greater than `r bio5_limit`℃ (@fig-arch-kde C). These appear to be outliers resulting from dating uncertainty (Extended Data Figure 9b), as well as long-distance trade in rice rather than local cultivation. Regardless, this period of higher temperatures was a relatively extreme century, during which historical and archaeological evidence attest to significant cultural disruption in the impacted regions (Extended Data Figure 8).
 
 ## Currently cultivated rice areas are projected to exceed these thermal limits over the next century
 
-Although rice has spread to warmer environments since its domestication, the magnitude of this change over the past 9,000 years is small relative to anticipated changes by the end of this century. Multiple climate-model projections and future socioeconomic and emissions scenarios show large shifts in mean annual temperatures in regions where rice is currently cultivated intensively, particularly in South, Southeast and Island Southeast Asia (@fig-future-densities). <!--# more detailed description of model spread (ie ukesm model in china)? --> Mean annual temperature will exceed `r round(bio1_limit)`℃ for a substantial area of current occurrences in the years 2070-2100. Large parts of South, Southeast, and Island SE Asia will experience temperature conditions for which there is no analogue in the history of the cultivation and domestication of rice over at least the past 9,000 years (@fig-future-maps, Supplementary @fig-country-summaries). Although the extent of these projected shifts vary among climate models and emissions scenarios, the overall direction of this change is consistent (Supplementary @fig-niche-all-models-bio1, @fig-niche-all-models-bio10, @fig-niche-all-models-bio5).
+Although rice has spread to warmer environments since its domestication, the magnitude of this change over the past 9,000 years is small relative to anticipated changes by the end of this century. Multiple climate-model projections and future socioeconomic and emissions scenarios show large shifts in mean annual temperatures in regions where rice is currently cultivated intensively, particularly in South, Southeast and Island Southeast Asia (@fig-future-densities). <!--# more detailed description of model spread (ie ukesm model in china)? --> Mean annual temperature will exceed `r round(bio1_limit)`℃ for a substantial area of current occurrences in the years 2070-2100. Large parts of South, Southeast, and Island SE Asia will experience temperature conditions for which there is no analogue in the history of the cultivation and domestication of rice over at least the past 9,000 years (@fig-future-maps, Extended Data Figure 1). Although the extent of these projected shifts vary among climate models and emissions scenarios, the overall direction of this change is consistent (Extended Data Figure 2, 3, 4).
 
-A genetic offset analysis assessing the potential maladaptation of *O. sativa* subspecies to future climate scenarios, correlating contemporary genetic variation with annual and seasonal temperature, indicates both subspecies are at a significantly higher risk of maladaptation under projected temperature regimes of the coming century (@fig-offsets). When projecting to future climates across Asia, optimal growing locations for rice landraces of both subspecies show a greater skew away from the equator in the likeliest emissions scenarios. <!--# (Supplementary @).link? -->
+A genetic offset analysis assessing the potential maladaptation of *O. sativa* subspecies to future climate scenarios, correlating contemporary genetic variation with annual and seasonal temperature, indicates both subspecies are at a significantly higher risk of maladaptation under projected temperature regimes of the coming century (@fig-offsets). When projecting to future climates across Asia, optimal growing locations for rice landraces of both subspecies show a greater skew away from the equator in the likeliest emissions scenarios.
 
 ```{r}
 #| label: cmip6-data
@@ -508,7 +514,7 @@ We extracted the contemporary CHELSA climate data at each set of occurrence poin
 
 ## Archaeological Rice Distribution Data
 
-We used past rice occurrence data sourced from archaeological sites, as synthesized in @Guedes2018 and @long2022 and primarily derived from version 2 of the Rice Archaeological Database [@silva2015]. We also included observations from @crema2022 to increase data coverage in Japan. These records are typically of botanical remains, believed to represent *O. sativa japonica* from these archaeological sites, with less intensive sampling of *indica* varieties from northern India. However, based on their chronology, some occurrences might pertain to the wild-type *O. rufipogon* or *O. nivara*. After data harmonization---which involved eliminating potential outliers, rectifying misclassifications, and removing duplicated site data---we were left with a comprehensive dataset of 1,597 dates from 805 archaeological sites. These datasets comprise a mixture of direct radiocarbon dates on rice remains, alongside dates from associated contextual materials and ranges anchored in prevailing archaeological eras. We employed the Intcal20 calibration curve for recalibrating all radiocarbon dates, barring a single site in the southern hemisphere where we utilized SHcal20. We then extracted temperature variables from the CHELSA-TraCE21k v1.0 dataset was done at each sampled location in time and space. To account for chronological uncertainty, we generated 5,000 bootstrap replicates, sampling from the radiocarbon dates' posterior density distribution and a uniform density for the archaeological phase dates. Finally, we constructed unique kernel density estimates of the temperature distributions at each rice occurrence point for every bootstrap replicate and temperature variable (@fig-bootstrap).
+We used past rice occurrence data sourced from archaeological sites, as synthesized in @Guedes2018 and @long2022 and primarily derived from version 2 of the Rice Archaeological Database [@silva2015]. We also included observations from @crema2022 to increase data coverage in Japan. These records are typically of botanical remains, believed to represent *O. sativa japonica* from these archaeological sites, with less intensive sampling of *indica* varieties from northern India. However, based on their chronology, some occurrences might pertain to the wild-type *O. rufipogon* or *O. nivara*. After data harmonization---which involved eliminating potential outliers, rectifying misclassifications, and removing duplicated site data---we were left with a comprehensive dataset of 1,597 dates from 805 archaeological sites. These datasets comprise a mixture of direct radiocarbon dates on rice remains, alongside dates from associated contextual materials and ranges anchored in prevailing archaeological eras. We employed the Intcal20 calibration curve for recalibrating all radiocarbon dates, barring a single site in the southern hemisphere where we utilized SHcal20. We then extracted temperature variables from the CHELSA-TraCE21k v1.0 dataset was done at each sampled location in time and space. To account for chronological uncertainty, we generated 5,000 bootstrap replicates, sampling from the radiocarbon dates' posterior density distribution and a uniform density for the archaeological phase dates. Finally, we constructed unique kernel density estimates of the temperature distributions at each rice occurrence point for every bootstrap replicate and temperature variable.
 
 ## Genetic Offset Analysis
 
@@ -522,279 +528,20 @@ We used the genetic.offset function of the R package LEA [@gain2021] to calculat
 
 To make predictions about where the climate is likely to be optimal for rice-growing in the future, we sampled 10,000 grids from across Asia and calculated genomic offset scores for each individual in the environment of each grid, for the three SSP scenarios. We interpret the grid with the lowest offset score as a possible future optimal location for each rice individual. As a measure of the extent of movement that would be required for adaptation, we subtract the absolute value of the current latitude of each rice individual from the absolute value of the centroid latitude of the optimal grid; positive values of this absolute latitudinal distance indicate movement away from the equator.
 
-# Code Availability
+# Code Availability {.appendix}
 
 All analyses carried out in `R` [@base]. The analysis is run via reproducible `.qmd` notebooks available [here](https://github.com/nick-gauthier/rice).
 
-# Data Availability
+# Data Availability {.appendix}
 
 All data required to reproduce the analysis is included with the analysis code repository or available from public sources linked therein.
 
-# Author Contributions
+# Author Contributions {.appendix}
 
 Conceptualization: NG, JDG. Methodology: NG, OA, MP, JDG. Software: NG, OA. Formal Analysis: NG, OA. Validation: NG, JDG. Data Curation: NG, OA, JDG. Writing---original draft: NG, JDG. Writing---review and editing: NG, OA, MP, JDG. Visualization: NG. Supervision: MP, JDG. Funding Acquisition: MP, JDG.
 
-# Acknowledgements
+# Acknowledgements {.appendix}
 
 This work was supported by a grant from the Zegar Family Foundation.
-
-# Supplementary Material
-
-```{r}
-#| label: tbl-quantiles
-#| tbl-cap: "Present-day rice extent quantiles across three datasets of varying resolution and spatiotemporal support, compared to those calculated from archaeological sites in Asia throughout the Holocene."
-
-quants_mod_monfreda <- monfreda_occ %>%
-  st_drop_geometry() %>%
-  select(bio1, bio5, bio10) %>%
-  mutate(across(everything(), ~units::set_units(.x, 'degree_C'))) %>%
-  reframe(across(everything(), 
-                   ~quantile(.x, quantiles, type = 8))) %>%
-  round(1) %>%
-  mutate(quantile = quantiles, .before = 1)
-
-quants_mod_gbif <- occ_dat %>%
-  st_drop_geometry() %>%
-  select(bio1, bio5, bio10) %>%
-  mutate(across(everything(), ~units::set_units(.x, 'degree_C'))) %>%
-  reframe(across(everything(), 
-                   ~quantile(.x, quantiles, type = 8))) %>%
-  round(1) %>%
-  mutate(quantile = quantiles, .before = 1)
-
-quants_arch <- arch_trace_dat %>%
-  st_drop_geometry() %>%
-  select(bio1 = MAT, bio5 = tmax, bio10 = twarm) %>%
-  mutate(across(everything(), ~units::set_units(.x, 'degree_C'))) %>%
-  reframe(across(everything(), 
-                   ~quantile(.x, quantiles, type = 8))) %>%
-  round(1) %>%
-  mutate(quantile = quantiles, .before = 1)
-
-left_join(quants_mod, quants_mod_monfreda, by = 'quantile') %>%
-  left_join(quants_mod_gbif, by = 'quantile') %>%
-  left_join(quants_arch, by = 'quantile') %>%
-  units::drop_units() %>% # do we want celsius units?
-  mutate(quantile = set_units(quantile * 100, '%')) %>% 
-  select(quantile, bio1.x, bio1.y, bio1.x.x, bio1.y.y, bio5.x, bio5.y, bio5.x.x, bio5.y.y, bio10.x, bio10.y, bio10.x.x, bio10.y.y) %>%
-  setNames(c('Quantile', rep(c('IRRI', 'Mon.', 'GBIF', 'Arch.'), 3))) %>%
-  kableExtra::kbl() %>%
-  kableExtra::kable_styling('striped') %>%
-  kableExtra::add_header_above(tibble(names = c('', 'Mean Annual Temperature', 
-                                                'Max Temp. of the Warmest Month', 
-                                                'Max Temp. of the Warmest Quarter'), 
-                                      spans = c(1,4,4,4)))  #%>%
-  #kableExtra::save_kable('data/data-derived/quantiles_table.png')
-```
-
-![Present-day rice extent quantiles across three datasets of varying resolution and spatiotemporal support, compared to those calculated from archaeological sites in Asia throughout the Holocene](data/data-derived/quantiles_table.png){#tbl-quantiles-2 width="4in"}
-
-```{r}
-#| label: fig-country-summaries
-#| fig-width: 7
-#| fig-height: 4
-#| fig-cap: "Projected increases in land area surpassing key temperature thresholds in each of the top 15 rice-producing countries in east Asia."
-country_stats %>% 
-  ggplot(aes(ssp, percent, group = variable, color = variable)) +
-  facet_wrap(~name) +
-  scale_color_manual(values = c('#abdda4', '#fdae61', '#d7191c'
-)) +
-  geom_line(linewidth = 1.2) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-```
-
-```{r}
-#| label: tbl-country-summaries-table
-#| tbl-cap: "Projected increases in land area surpassing key temperature thresholds in each of the top 15 rice-producing countries in east Asia."
-
-# this is total land area??
-country_stats %>%
-  filter(variable == 'Mean annual temperature') %>%
-  select(-percent, -area) %>%
-  pivot_wider(names_from = ssp, 
-              values_from = sum) %>%
-  select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
-  summarise(across(Present:`SSP5-8.5`, ~sum(.x))) %>%
-  mutate(across(everything(), ~.x / Present))
-
-country_stats %>%
-  mutate(percent = round(percent)) %>%
-  filter(variable == 'Mean annual temperature') %>%
-  select(-sum, -area) %>%
-  pivot_wider(names_from = ssp, 
-              values_from = percent) %>%
-  select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
-  knitr::kable()
-  #gt::gt() %>%
-  #gt::tab_header(title = "Percent land area surpassing MAT threshold")
-
-country_stats %>%
-  mutate(percent = round(percent)) %>%
-  filter(variable == 'Max temperature of warmest quarter') %>%
-    select(-sum, -area) %>%
-  pivot_wider(names_from = ssp, 
-              values_from = percent) %>%
-  select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
-  gt::gt() %>%
-  gt::tab_header(title = "Percent land area surpassing T-WARM threshold")
-
-country_stats %>%
-  mutate(percent = round(percent)) %>%
-  filter(variable == 'Max temperature of warmest month') %>%
-    select(-sum, -area) %>%
-  pivot_wider(names_from = ssp, 
-              values_from = percent) %>%
-  select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
-  gt::gt() %>%
-  gt::tab_header(title = "Percent land area surpassing T-HOT threshold")
-```
-
-```{r}
-#| label: fig-niche-all-models-bio1
-#| cache: true
-#| fig-width: 8
-#| fig-height: 12
-#| fig-cap: Predicted changes in mean annual temperature over currently cultivated rice areas in Asia for multiple CMIP6 ensemble members.
-
-ggplot() +
-  geom_stars(data = slice(cmip6, 'variable', 1) > units::drop_units(bio1_limit), downsample = 20) +
-  facet_grid(model~ssp) +
-  scale_fill_manual(values = c('grey', 'red'), 
-                    name = paste0('MAT > ', bio1_limit), 
-                    na.value = NA, na.translate = FALSE) +
-  geom_sf(data = coasts) +
-  labs(x = '', y = '')
-```
-
-```{r}
-#| label: fig-niche-all-models-bio10
-#| cache: true
-#| fig-width: 8
-#| fig-height: 12
-#| fig-cap: Predicted changes in mean maximum temperature of the warmest quarter over currently cultivated rice areas in Asia for multiple CMIP6 ensemble members.
-
-ggplot() +
-  geom_stars(data = slice(cmip6, 'variable', 2) > units::drop_units(bio10_limit), downsample = 20) +
-  facet_grid(model~ssp) +
-  scale_fill_manual(values = c('grey', 'red'), 
-                       name = paste0('twarm > ', bio10_limit),
-                    na.value = NA, na.translate = FALSE) +
-  geom_sf(data = coasts) +
-  labs(x = '', y = '')
-```
-
-```{r}
-#| label: fig-niche-all-models-bio5
-#| cache: true
-#| fig-width: 8
-#| fig-height: 12
-#| fig-cap: Predicted changes in mean maximum temperature of the warmest month over currently cultivated rice areas in Asia for multiple CMIP6 ensemble members.
-
-ggplot() +
-  geom_stars(data = slice(cmip6, 'variable', 3) > units::drop_units(bio5_limit), downsample = 20) +
-  facet_grid(model~ssp) +
-  scale_fill_manual(values = c('grey', 'red'), 
-                    name = paste0('tmax > ', bio5_limit), 
-                    na.value = NA, na.translate = FALSE) +
-  geom_sf(data = coasts) +
-  labs(x = '', y = '')
-```
-
-```{r}
-#| label: ens
-#| fig-width: 6
-#| fig-height: 4
-#| eval: false
-#| cache: true
-
-ens_mean <- st_apply(cmip6, 1:4, mean)
-
-ggplot() +
-  geom_stars(data = slice(ens_mean, 'variable', 2) > units::drop_units(bio10_limit), downsample = 20) +
-  facet_wrap(~ssp) +
-  scale_fill_manual(values = c('grey', 'red'), 
-                    name = paste0('twarm > ', bio10_limit), 
-                    na.value = NA, na.translate = FALSE) +
-  geom_sf(data = coasts) +
-  labs(x = '', y = '')
-
-ggplot() +
-  geom_stars(data = slice(ens_mean, 'variable', 1) > units::drop_units(bio1_limit), downsample = 20) +
-  facet_wrap(~ssp) +
-  scale_fill_manual(values = c('grey', 'red'), 
-                    name = paste0('MAT > ', bio1_limit), 
-                    na.value = NA, na.translate = FALSE) +
-  geom_sf(data = coasts) +
-  labs(x = '', y = '')
-
-ggplot() +
-  geom_stars(data = slice(ens_mean, 'variable', 3) > units::drop_units(bio5_limit), downsample = 20) +
-  facet_wrap(~ssp) +
-  scale_fill_manual(values = c('grey', 'red'), 
-                    name = paste0('tmax > ', bio5_limit), 
-                    na.value = NA, na.translate = FALSE) +
-  geom_sf(data = coasts) +
-  labs(x = '', y = '')
-```
-
-```{r}
-#| label: fig-erb-recon
-#| fig-width: 6
-#| fig-height: 6
-#| fig-cap: "EOF analysis of Holocene temperature reconstruction reveals two leading modes of decadal-scale variability that collectively explain 86% of the decadal scale temperature variability. We focus on the period from 7000 to 1000 years ago to remove impacts from the last deglaciation and contemporary greenhouse gas emissions. These two modes reflect trends in North and South Asian variability. The northern part of China has become cooler while the South has become warmer over time."
-  
-library(tidyEOF)
-pat <- get_patterns(erb_decadal %>% filter(between(time, -7000, -1000)), 
-                    k = 2, scale = TRUE, rotate = FALSE)
-eof <- plot_eofs(pat) +
-  geom_sf(data = coasts) #+
-  #geom_sf(data = arch_trace_dat %>%
-  #filter(med_age < -2000), size = 0.5)
-
-amp <- plot_amps(pat, scaled = FALSE) + 
-  geom_smooth()
-
-eof / amp + plot_layout(heights = c(2,1))
-```
-
-```{r}
-#| label: fig-bootstrap
-#| fig-width: 6
-#| fig-height: 6
-#| fig-cap: "A) Bootstrapped kernel density estimates of rice's thermal extent throughout the Holocene. Bootstrap resampling accounts for uncertainty in radiocarbon and phase-based dating of archaeological rice finds. Contemporary temperature tresholds indicated in red. B) Estimated 97.5% quantiles from the bootstrapped dataset. Contemporary quantiles indicated in red."
-
-arch_boot_quant <- readRDS('data/data-derived/arch_boot_quant.rds')
-arch_boot_kde <- readRDS(here('data/data-derived/arch_boot_kde.rds'))
-
-# contemporary quantiles for plotting
-quant_dat <- quant_975 |>
-               select(-quantile) |>
-               setNames(c('MAT', 'tmax', 'twarm')) |>
-              pivot_longer(everything())
-
-boot_1 <- arch_boot_kde %>%
-ggplot(aes(value, estimate)) +
-  geom_line(alpha = 0.01, aes(group = rep)) +
-  facet_wrap(~name, scales = 'free_y', nrow = 3) +
-  geom_vline(data = quant_dat, aes(xintercept = as.numeric(value)), linetype = 2, color = 'red') +
-  labs(x = 'Temperature')
-
-boot_2 <- arch_boot_quant |>
-  ggplot(aes(value)) +
-    geom_histogram() +
-    facet_wrap(~name, scales = 'free_x', nrow = 3) +
-    labs(x = 'Temperature') +
-    theme_bw() +
-    geom_vline(data = quant_dat, aes(xintercept = value), linetype = 2, color = 'red')
-
-boot_1 + boot_2 +  plot_annotation(tag_levels = 'A')
-```
-
-```{r}
-here('data/data-derived/indica_permut_offset_2.6') %>%
-  list.files(full.names = TRUE) %>%
-  .[[1]] %>%
-  readRDS()
-```
 
 # References
