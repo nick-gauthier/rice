@@ -697,7 +697,7 @@ arch_dat <- bind_rows(c14 = c14_cleaned,
 rm(long_filter, japan_arch, long, gb2018, rad)
 ```
 
-After data harmonization—which involved eliminating potential outliers, rectifying misclassifications, and removing duplicated site data—we were left with a comprehensive dataset of `r nrow(arch_dat)` dates from `r length(unique(arch_dat$site))` archaeological sites. These datasets comprise a mixture of direct radiocarbon dates on rice remains, alongside dates from associated contextual materials and ranges anchored in prevailing archaeological eras. We employed the Intcal20 calibration curve for recalibrating all radiocarbon dates, barring a single site in the southern hemisphere where we utilized SHcal20.
+After data harmonization---which involved eliminating potential outliers, rectifying misclassifications, and removing duplicated site data---we were left with a comprehensive dataset of `r nrow(arch_dat)` dates from `r length(unique(arch_dat$site))` archaeological sites. These datasets comprise a mixture of direct radiocarbon dates on rice remains, alongside dates from associated contextual materials and ranges anchored in prevailing archaeological eras. We employed the Intcal20 calibration curve for recalibrating all radiocarbon dates, barring a single site in the southern hemisphere where we utilized SHcal20.
 
 ### Bootstrapping Archaeological Dates
 
@@ -743,7 +743,6 @@ boot_joined <- list(c14 = map_dfr(c14_splits$splits, sampler_c14, .id = 'rep'),
   mutate(time = time)
 ```
 
-
 ### Extracting paleoclimate data
 
 We then extracted temperature variables from the CHELSA-TraCE21k v1.0 dataset at each sampled location in time and space. Finally, we constructed unique kernel density estimates of the temperature distributions at each rice occurrence point for every bootstrap replicate and temperature variable.
@@ -775,6 +774,7 @@ saveRDS(trace_boot, 'data/data-derived/trace_boot.rds')
 ```
 
 ### Visualizing Archaeological Bootstraps
+
 ```{r}
 trace_boot %>%
   filter(time <= -2000) %>%
@@ -821,6 +821,25 @@ trace_boot %>%
   facet_grid(type~name, scales = 'free') +
   theme_bw()
 ```
+
+```{r}
+ trace_boot %>%
+  filter(time <= -2000) %>%
+  select(rep, MAT:twarm) %>%
+  pivot_longer(MAT:twarm) %>%
+  group_by(rep, name) %>%
+  tidy_kde() %>%
+  saveRDS(here('data/data-derived/arch_boot_kde.rds'))
+
+trace_boot %>%
+  filter(time <= -2000) %>%
+  pivot_longer(MAT:twarm, values_to = 'temperature') %>%
+  mutate(temperature = units::set_units(temperature, 'degree_c')) %>%
+  group_by(rep, name) %>%
+  reframe(value = quantile(temperature, 0.975, type = 8)) %>%
+  saveRDS(here('data/data-derived/arch_boot_quant.rds'))
+```
+
 
 group by bin?
 
@@ -870,14 +889,13 @@ ggplot(arch_kde, aes(value, estimate)) +
   facet_wrap(~name, scales = 'free_y', nrow = 3)
 ```
 
-
 ## Genetic Data
 
 We performed a genetic offset analysis to evaluate the potential maladaptation of Oryza sativa subspecies indica and japonica under projected climate change scenarios. The workflow entailed a gene-environment association analysis focusing on the first principal component of the three temperature variables (MAT, TWARM, TMAX), which explained over 81% of the environmental variance across the locations of both rice subspecies. This analysis corrected for population structure and identified outlier single nucleotide polymorphisms (SNPs) as candidate loci from each linkage group. We leveraged a large dataset of geotagged japonica and indica accessions and biallelic SNPs filtered for quality and imputed for missing genotypes. The genetic offset, indicative of maladaptation to predicted climates, was calculated using these loci. We averaged model predictions across each climate models (UKESM, MRI, IPSL, etc.) in the ensemble for each Shared Socioeconomic Pathway (SSP).
 
 Landraces are representative of the extant genetic diversity of crop species, and frequently exhibit local adaptations from sustained cultivation in specific geographic localities. Sampling landraces of a crop over a wide geographical area and sequencing their genomes can help identify putative adaptive variants associated with different environments. Genetic offset statistics provide measures of maladaptation under different or projected climate scenarios, based on association of genotypes with environmental variation [@gain2023].
 
-Using previously published datasets of geotagged rice landraces belonging to the subspecies O. sativa ssp. Indica [@gutaker2020] and O. sativa ssp. Japonica [@alam2021], we performed gene-environment association (GEA) analyses with lfmm2 function from the R package LEA (v3.12.2)—on the two subspecies separately—to identify variants associated with variation in temperature [@gain2021]. Temperature was represented by the first principal component of mean annual temperature, mean maximum daily temperature of the warmest month, and mean daily temperature of the warmest quarter from CHELSA V2 averages for the period 1981-2010. The first principal component represented 84.6% and 86.12% of the variation in the environmental data for the indica and japonica datasets, respectively. To correct for population structure in the GEA, we provided the number of ancestral populations, K, as the number of latent factors in our latent factor mixed models [@gain2021]. We selected the number of ancestral populations based on the number of principal components of the genotype matrix that explain a large proportion of the variance, the cross-entropy—a measure of model fit—of different values of K, and information from prior studies [@gutaker2020; @alam2021]. Variants identified in the GEA were clumped within 100 kb of each other, selecting the variant with the lowest p-value as the focal SNP.
+Using previously published datasets of geotagged rice landraces belonging to the subspecies O. sativa ssp. Indica [@gutaker2020] and O. sativa ssp. Japonica [@alam2021], we performed gene-environment association (GEA) analyses with lfmm2 function from the R package LEA (v3.12.2)---on the two subspecies separately---to identify variants associated with variation in temperature [@gain2021]. Temperature was represented by the first principal component of mean annual temperature, mean maximum daily temperature of the warmest month, and mean daily temperature of the warmest quarter from CHELSA V2 averages for the period 1981-2010. The first principal component represented 84.6% and 86.12% of the variation in the environmental data for the indica and japonica datasets, respectively. To correct for population structure in the GEA, we provided the number of ancestral populations, K, as the number of latent factors in our latent factor mixed models [@gain2021]. We selected the number of ancestral populations based on the number of principal components of the genotype matrix that explain a large proportion of the variance, the cross-entropy---a measure of model fit---of different values of K, and information from prior studies [@gutaker2020; @alam2021]. Variants identified in the GEA were clumped within 100 kb of each other, selecting the variant with the lowest p-value as the focal SNP.
 
 We used the genetic.offset function of the R package LEA [@gain2021] to calculate genomic offset statistics for rice landraces of O. sativa ssp. Indica and O. sativa ssp. Japonica while considering the temperature-associated variants as putative adaptive variants under the SSP1, SSP3, and SSP5 projected pathways that are used to derive greenhouse gas emission scenarios. We also calculated genomic offset statistics under the maximum estimated temperature at each location in the past 12,000 years. For both japonica and indica, the degree of maladaptation increases from SSP1, which is a best-case scenario with decreasing greenhouse gas emissions, to SSP3 to SSP5, which represents a worse-case scenario. Rice landraces appear relatively well-adapted under the past maximum temperature scenario, except for some varieties in the northern range of rice cultivation which is consistent with past findings that temperate-adapted northern varieties possibly started growing in these regions after a global temperature decline 4,200 years ago [@gutaker2020].
 

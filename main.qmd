@@ -73,7 +73,7 @@ world_bbox_sf <- st_bbox(c(xmin = -130, xmax = 155, ymin = -40, ymax = 60), crs 
 sf_use_s2(FALSE)
 countries <- ne_countries(scale = 'large') %>% 
   st_crop(asia_bbox_sf)
-countries_small<- ne_countries() %>%
+countries_small <- ne_countries() %>%
   st_crop(asia_bbox_sf)
 coasts <- ne_coastline() %>%
   st_crop(asia_bbox_sf)
@@ -472,7 +472,7 @@ ggplot(offset_dat) +
 
 # Discussion
 
-There is a clear maximum limit of mean annual temperature over `r round(bio1_limit)`℃ for rice that has not been crossed both over the history of its domestication. Forward looking climate projections show that areas that currently house some of the highest densities of rice cultivation on Earth will surpass this limit by 2070 (@fig-future-maps). Today, 675 million people live in Southeast Asia and 1.9 billion people live in South Asia. By the end of this century, it is estimated that at least this number of people will live in the region that will be above `r round(bio1_limit)`℃. Today, mean annual temperatures greater than `r round(bio1_limit)`℃ are distributed across only a very small area of the planet which includes only a small portion of the gulf desert and the Sahara [@Xu2020]. Beyond the impact of this heat on rice cultivation, this study raises serious concerns about the viability of plant life in regions which will be impacted. The predictions for these areas of the world are out of the historic sample of distribution for rice and have no analogue in the present climate.
+There is a clear maximum limit of mean annual temperature over `r round(bio1_limit)`℃ for rice that has not been crossed both over the history of its domestication. Forward looking climate projections show that areas that currently house some of the highest densities of rice cultivation on Earth will surpass this limit by the end of this century (@fig-future-maps). Today, 675 million people live in Southeast Asia and 1.9 billion people live in South Asia. By the end of this century, it is estimated that at least this number of people will live in the region that will be above `r round(bio1_limit)`℃. Today, mean annual temperatures greater than `r round(bio1_limit)`℃ are distributed across only a very small area of the planet which includes only a small portion of the gulf desert and the Sahara [@Xu2020]. Beyond the impact of this heat on rice cultivation, this study raises serious concerns about the viability of plant life in regions which will be impacted. The predictions for these areas of the world are out of the historic sample of distribution for rice and have no analogue in the present climate.
 
 Shifting rice production north to regions currently too cold to grow rice will be insufficient to buffer these projected impacts. Beyond the potential for unanticipated social and environmental impacts [@hannah2020], this response does nothing for the billions of people who live in these hotter regions whose lives and livelihoods are directly threatened. This response would also ignore that rice cultivation requires extensive niche construction through the construction of paddies and that abiotic factors such as sufficient water for irrigation and soils which can accommodate paddy rice. Indeed many areas where rice is currently cultivated are already at the limit of these secondary agronomic adaptations [@mahaut2022]. Ethnographic work has shown that in Southeast Asia and China rice paddy soils have been formed over thousands of years of continuous farming which has increased their fertility [@netting1993]. Such long-term processes of niche construction cannot be easily replaced.
 
@@ -508,7 +508,7 @@ We extracted the contemporary CHELSA climate data at each set of occurrence poin
 
 ## Archaeological Rice Distribution Data
 
-We used past rice occurrence data sourced from archaeological sites, as synthesized in @Guedes2018 and @long2022 and primarily derived from version 2 of the Rice Archaeological Database [@silva2015]. We also included observations from @crema2022 to increase data coverage in Japan. These records are typically of botanical remains, believed to represent *O. sativa japonica* from these archaeological sites, with less intensive sampling of *indica* varieties from northern India. However, based on their chronology, some occurrences might pertain to the wild-type *O. rufipogon* or *O. nivara*. After data harmonization---which involved eliminating potential outliers, rectifying misclassifications, and removing duplicated site data---we were left with a comprehensive dataset of 1,597 dates from 805 archaeological sites. These datasets comprise a mixture of direct radiocarbon dates on rice remains, alongside dates from associated contextual materials and ranges anchored in prevailing archaeological eras. We employed the Intcal20 calibration curve for recalibrating all radiocarbon dates, barring a single site in the southern hemisphere where we utilized SHcal20. We then extracted temperature variables from the CHELSA-TraCE21k v1.0 dataset was done at each sampled location in time and space. To account for chronological uncertainty, we generated 5,000 bootstrap replicates, sampling from the radiocarbon dates' posterior density distribution and a uniform density for the archaeological phase dates. Finally, we constructed unique kernel density estimates of the temperature distributions at each rice occurrence point for every bootstrap replicate and temperature variable [@fig-bootstrap].
+We used past rice occurrence data sourced from archaeological sites, as synthesized in @Guedes2018 and @long2022 and primarily derived from version 2 of the Rice Archaeological Database [@silva2015]. We also included observations from @crema2022 to increase data coverage in Japan. These records are typically of botanical remains, believed to represent *O. sativa japonica* from these archaeological sites, with less intensive sampling of *indica* varieties from northern India. However, based on their chronology, some occurrences might pertain to the wild-type *O. rufipogon* or *O. nivara*. After data harmonization---which involved eliminating potential outliers, rectifying misclassifications, and removing duplicated site data---we were left with a comprehensive dataset of 1,597 dates from 805 archaeological sites. These datasets comprise a mixture of direct radiocarbon dates on rice remains, alongside dates from associated contextual materials and ranges anchored in prevailing archaeological eras. We employed the Intcal20 calibration curve for recalibrating all radiocarbon dates, barring a single site in the southern hemisphere where we utilized SHcal20. We then extracted temperature variables from the CHELSA-TraCE21k v1.0 dataset was done at each sampled location in time and space. To account for chronological uncertainty, we generated 5,000 bootstrap replicates, sampling from the radiocarbon dates' posterior density distribution and a uniform density for the archaeological phase dates. Finally, we constructed unique kernel density estimates of the temperature distributions at each rice occurrence point for every bootstrap replicate and temperature variable (@fig-bootstrap).
 
 ## Genetic Offset Analysis
 
@@ -528,11 +528,11 @@ All analyses carried out in `R` [@base]. The analysis is run via reproducible `.
 
 # Data Availability
 
-All data required to reproduce the analysis is included with the analysis code or available from public sources linked therein.
+All data required to reproduce the analysis is included with the analysis code repository or available from public sources linked therein.
 
 # Author Contributions
 
-**Nicolas Gauthier:** conceptualization, methodology, software, formal analysis, investigation, data curation, writing - original draft, writing -- review and editing, visualization. **Ornob Alam:** methodology, software, data curation, formal analysis, writing - review and editing. **Michael Purugganan:** methodology, writing -- review and editing, supervision, funding acquisition. **Jade d'Alpoim Guedes:** conceptualization, methodology, validation, data curation, writing -- original draft, writing -- review and editing, supervision, funding acquisition.
+Conceptualization: NG, JDG. Methodology: NG, OA, MP, JDG. Software: NG, OA. Formal Analysis: NG, OA. Validation: NG, JDG. Data Curation: NG, OA, JDG. Writing---original draft: NG, JDG. Writing---review and editing: NG, OA, MP, JDG. Visualization: NG. Supervision: MP, JDG. Funding Acquisition: MP, JDG.
 
 # Acknowledgements
 
@@ -587,7 +587,7 @@ left_join(quants_mod, quants_mod_monfreda, by = 'quantile') %>%
   #kableExtra::save_kable('data/data-derived/quantiles_table.png')
 ```
 
-![Present-day rice extent quantiles across three datasets of varying resolution and spatiotemporal support, compared to those calculated from archaeological sites in Asia throughout the Holocene](data/data-derived/quantiles_table.png){#tbl-quantiles-2 width="6in"}
+![Present-day rice extent quantiles across three datasets of varying resolution and spatiotemporal support, compared to those calculated from archaeological sites in Asia throughout the Holocene](data/data-derived/quantiles_table.png){#tbl-quantiles-2 width="4in"}
 
 ```{r}
 #| label: fig-country-summaries
@@ -763,7 +763,8 @@ eof / amp + plot_layout(heights = c(2,1))
 #| fig-height: 6
 #| fig-cap: "A) Bootstrapped kernel density estimates of rice's thermal extent throughout the Holocene. Bootstrap resampling accounts for uncertainty in radiocarbon and phase-based dating of archaeological rice finds. Contemporary temperature tresholds indicated in red. B) Estimated 97.5% quantiles from the bootstrapped dataset. Contemporary quantiles indicated in red."
 
-trace_boot <- readRDS('data/data-derived/trace_boot.rds')
+arch_boot_quant <- readRDS('data/data-derived/arch_boot_quant.rds')
+arch_boot_kde <- readRDS(here('data/data-derived/arch_boot_kde.rds'))
 
 # contemporary quantiles for plotting
 quant_dat <- quant_975 |>
@@ -771,32 +772,20 @@ quant_dat <- quant_975 |>
                setNames(c('MAT', 'tmax', 'twarm')) |>
               pivot_longer(everything())
 
-boot_1 <- trace_boot %>%
-  filter(time <= -2000) %>%
-  select(rep, MAT:twarm) %>%
-  pivot_longer(MAT:twarm) %>%
-  group_by(rep, name) %>%
-  tidy_kde() %>%
+boot_1 <- arch_boot_kde %>%
 ggplot(aes(value, estimate)) +
   geom_line(alpha = 0.01, aes(group = rep)) +
   facet_wrap(~name, scales = 'free_y', nrow = 3) +
   geom_vline(data = quant_dat, aes(xintercept = as.numeric(value)), linetype = 2, color = 'red') +
   labs(x = 'Temperature')
 
-boot_2 <- trace_boot %>%
-  filter(time <= -2000) %>%
-  pivot_longer(MAT:twarm, values_to = 'temperature') %>%
-  mutate(temperature = units::set_units(temperature, 'degree_c')) %>%
-  group_by(rep, name) %>%
-  reframe(value = quantile(temperature, 0.975, type = 8)) %>%
+boot_2 <- arch_boot_quant |>
   ggplot(aes(value)) +
     geom_histogram() +
     facet_wrap(~name, scales = 'free_x', nrow = 3) +
     labs(x = 'Temperature') +
     theme_bw() +
     geom_vline(data = quant_dat, aes(xintercept = value), linetype = 2, color = 'red')
-
-rm(trace_boot, quant_dat)
 
 boot_1 + boot_2 +  plot_annotation(tag_levels = 'A')
 ```
