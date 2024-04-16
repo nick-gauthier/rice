@@ -293,9 +293,22 @@ rm(trace_boot, quant_dat)
 boot_1 + boot_2 +  plot_annotation(tag_levels = 'A')
 ```
 
-```{r eval = FALSE}
-here('data/data-derived/indica_permut_offset_2.6') %>%
-  list.files(full.names = TRUE) %>%
-  .[[1]] %>%
-  readRDS()
+```{r}
+#| label: fig-displacement
+#| fig-width: 6
+#| fig-height: 4
+#| fig-cap: "Estimated displacement of the optimal growing location of rice landraces away from the equator, based on genetic offset analysis across three future temperature scenarios. The x-axis indicates the difference between the absolute projected latitude in the future scenario and the absolute latitude today, with positive values indicating a shift in the optimal growing location of a given population away from the equator."
+
+list(japonica = readRDS('data/data-derived/japonica_lat_shift.rds'),
+     indica = readRDS('data/data-derived/indica_lat_shift.rds')) |>
+  bind_rows(.id = 'landrace') |>
+  mutate(ssp = case_when(name == 'diff2.6' ~ 'SSP1-2.6',
+                         name == 'diff7.0' ~ 'SSP3-7.0',
+                         name == 'diff8.5' ~ 'SSP5-8.5')) |>
+ggplot(aes(x = value, fill = ssp)) +
+  geom_density(alpha = 0.3) +
+  facet_grid(landrace ~ ssp) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  scale_fill_brewer(palette = 'Spectral', direction = -1) +
+  labs(x = 'Latitudinal displacement (degrees)')
 ```
