@@ -1,13 +1,13 @@
 ---
-title: "Extended Data"
-format: html
+title: "Extended Data: Projected warming will exceed the fundamental thermal niche of rice cultivation"
+format: pdf
 editor: visual
 ---
 
 ```{r}
 #| label: setup
 #| include: false
-knitr::opts_chunk$set(dev = 'png', echo = FALSE, results = FALSE, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(dev = 'png', echo = FALSE, results = TRUE, message = FALSE, warning = FALSE)
 
 library(tidyverse)
 library(sf)
@@ -39,11 +39,10 @@ coasts_world <- ne_coastline() %>%
 countries_world <- ne_countries(scale = 'large') %>% 
   st_crop(world_bbox_sf)
 sf_use_s2(TRUE)
+
 country_stats <- readRDS('data/data-derived/country_stats.rds') # country level stats
 
-
 load(here('data/data-derived/occurrence_data.RData'))
-erb_decadal <- readRDS('data/data-derived/erb_decadal.rds')
 
 arch_trace_dat <- readRDS(here('data/data-derived/arch_trace.rds')) |>
   mutate(mil = (med_age - med_age %% 1000) / 1000 + 1) |>
@@ -127,21 +126,17 @@ left_join(quants_mod, quants_mod_monfreda, by = 'quantile') %>%
   mutate(quantile = set_units(quantile * 100, '%')) %>% 
   select(quantile, bio1.x, bio1.y, bio1.x.x, bio1.y.y, bio5.x, bio5.y, bio5.x.x, bio5.y.y, bio10.x, bio10.y, bio10.x.x, bio10.y.y) %>%
   setNames(c('Quantile', rep(c('IRRI', 'Mon.', 'GBIF', 'Arch.'), 3))) %>%
-  kableExtra::kbl() %>%
-  kableExtra::kable_styling('striped') %>%
-  kableExtra::add_header_above(tibble(names = c('', 'Mean Annual Temperature', 
-                                                'Max Temp. of the Warmest Month', 
-                                                'Max Temp. of the Warmest Quarter'), 
-                                      spans = c(1,4,4,4)))  #%>%
-  #kableExtra::save_kable('data/data-derived/quantiles_table.png')
+  knitr::kable() |>
+  kableExtra::add_header_above(tibble(names = c('', 'MAT', 
+                                                'TMAX', 
+                                                'TWARM'), 
+                                      spans = c(1,4,4,4)))  
 ```
-
-![Present-day rice extent quantiles across three datasets of varying resolution and spatiotemporal support, compared to those calculated from archaeological sites in Asia throughout the Holocene](data/data-derived/quantiles_table.png){#tbl-quantiles-2 width="4in"}
 
 ```{r}
 #| label: fig-country-summaries
-#| fig-width: 7
-#| fig-height: 4
+#| fig-width: 8
+#| fig-height: 6
 #| fig-cap: "Projected increases in land area surpassing key temperature thresholds in each of the top 15 rice-producing countries in east Asia."
 country_stats %>% 
   ggplot(aes(ssp, percent, group = variable, color = variable)) +
@@ -173,29 +168,26 @@ country_stats %>%
   pivot_wider(names_from = ssp, 
               values_from = percent) %>%
   select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
-  knitr::kable()
-  #gt::gt() %>%
-  #gt::tab_header(title = "Percent land area surpassing MAT threshold")
-# 
-# country_stats %>%
-#   mutate(percent = round(percent)) %>%
-#   filter(variable == 'Max temperature of warmest quarter') %>%
-#     select(-sum, -area) %>%
-#   pivot_wider(names_from = ssp, 
-#               values_from = percent) %>%
-#   select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
-#   gt::gt() %>%
-#   gt::tab_header(title = "Percent land area surpassing T-WARM threshold")
-# 
-# country_stats %>%
-#   mutate(percent = round(percent)) %>%
-#   filter(variable == 'Max temperature of warmest month') %>%
-#     select(-sum, -area) %>%
-#   pivot_wider(names_from = ssp, 
-#               values_from = percent) %>%
-#   select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
-#   gt::gt() %>%
-#   gt::tab_header(title = "Percent land area surpassing T-HOT threshold")
+  knitr::kable(caption = "Percent land area surpassing MAT threshold")
+
+
+country_stats %>%
+  mutate(percent = round(percent)) %>%
+  filter(variable == 'Max temperature of warmest quarter') %>%
+    select(-sum, -area) %>%
+  pivot_wider(names_from = ssp,
+              values_from = percent) %>%
+  select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
+  knitr::kable(caption = "Percent land area surpassing TWARM threshold")
+
+country_stats %>%
+  mutate(percent = round(percent)) %>%
+  filter(variable == 'Max temperature of warmest month') %>%
+    select(-sum, -area) %>%
+  pivot_wider(names_from = ssp,
+              values_from = percent) %>%
+  select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
+  knitr::kable(caption = "Percent land area surpassing TMAX threshold")
 ```
 
 ```{r}
@@ -226,7 +218,7 @@ ggplot() +
   geom_stars(data = slice(cmip6, 'variable', 2) > units::drop_units(bio10_limit), downsample = 20) +
   facet_grid(model~ssp) +
   scale_fill_manual(values = c('grey', 'red'), 
-                       name = paste0('twarm > ', bio10_limit),
+                       name = paste0('TWARM > ', bio10_limit),
                     na.value = NA, na.translate = FALSE) +
   geom_sf(data = coasts) +
   labs(x = '', y = '')
@@ -243,7 +235,7 @@ ggplot() +
   geom_stars(data = slice(cmip6, 'variable', 3) > units::drop_units(bio5_limit), downsample = 20) +
   facet_grid(model~ssp) +
   scale_fill_manual(values = c('grey', 'red'), 
-                    name = paste0('tmax > ', bio5_limit), 
+                    name = paste0('TMAX > ', bio5_limit), 
                     na.value = NA, na.translate = FALSE) +
   geom_sf(data = coasts) +
   labs(x = '', y = '')
@@ -260,13 +252,13 @@ trace_boot <- readRDS('data/data-derived/trace_boot.rds')
 # contemporary quantiles for plotting
 quant_dat <- quant_975 |>
                select(-quantile) |>
-               setNames(c('MAT', 'tmax', 'twarm')) |>
+               setNames(c('MAT', 'TMAX', 'TWARM')) |>
               pivot_longer(everything())
 
 boot_1 <- trace_boot %>%
   filter(time <= -2000) %>%
-  select(rep, MAT:twarm) %>%
-  pivot_longer(MAT:twarm) %>%
+  select(rep, MAT:TWARM) %>%
+  pivot_longer(MAT:TWARM) %>%
   group_by(rep, name) %>%
   tidy_kde() %>%
 ggplot(aes(value, estimate)) +
@@ -277,7 +269,7 @@ ggplot(aes(value, estimate)) +
 
 boot_2 <- trace_boot %>%
   filter(time <= -2000) %>%
-  pivot_longer(MAT:twarm, values_to = 'temperature') %>%
+  pivot_longer(MAT:TWARM, values_to = 'temperature') %>%
   mutate(temperature = units::set_units(temperature, 'degree_c')) %>%
   group_by(rep, name) %>%
   reframe(value = quantile(temperature, 0.975, type = 8)) %>%
