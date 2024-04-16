@@ -132,6 +132,49 @@ left_join(quants_mod, quants_mod_monfreda, by = 'quantile') %>%
                                                 'TWARM'), 
                                       spans = c(1,4,4,4)))  
 ```
+```{r}
+#| label: fig-bootstrap
+#| fig-width: 6
+#| fig-height: 6
+#| fig-cap: "A) Bootstrapped kernel density estimates of rice's thermal extent throughout the Holocene. Bootstrap resampling accounts for uncertainty in radiocarbon and phase-based dating of archaeological rice finds. Contemporary temperature tresholds indicated in red. B) Estimated 97.5% quantiles from the bootstrapped dataset. Contemporary quantiles indicated in red."
+
+trace_boot <- readRDS('data/data-derived/trace_boot.rds')
+
+# contemporary quantiles for plotting
+quant_dat <- quant_975 |>
+               select(-quantile) |>
+               setNames(c('MAT', 'TMAX', 'TWARM')) |>
+              pivot_longer(everything())
+
+boot_1 <- trace_boot %>%
+  filter(time <= -2000) %>%
+  select(rep, MAT:TWARM) %>%
+  pivot_longer(MAT:TWARM) %>%
+  group_by(rep, name) %>%
+  tidy_kde() %>%
+ggplot(aes(value, estimate)) +
+  geom_line(alpha = 0.01, aes(group = rep)) +
+  facet_wrap(~name, scales = 'free_y', nrow = 3) +
+  geom_vline(data = quant_dat, aes(xintercept = as.numeric(value)), linetype = 2, color = 'red') +
+  labs(x = 'Temperature')
+
+boot_2 <- trace_boot %>%
+  filter(time <= -2000) %>%
+  pivot_longer(MAT:TWARM, values_to = 'temperature') %>%
+  mutate(temperature = units::set_units(temperature, 'degree_c')) %>%
+  group_by(rep, name) %>%
+  reframe(value = quantile(temperature, 0.975, type = 8)) %>%
+  ggplot(aes(value)) +
+    geom_histogram() +
+    facet_wrap(~name, scales = 'free_x', nrow = 3) +
+    labs(x = 'Temperature') +
+    theme_bw() +
+    geom_vline(data = quant_dat, aes(xintercept = value), linetype = 2, color = 'red')
+
+rm(trace_boot, quant_dat)
+
+boot_1 + boot_2 +  plot_annotation(tag_levels = 'A')
+```
 
 ```{r}
 #| label: fig-country-summaries
@@ -241,49 +284,7 @@ ggplot() +
   labs(x = '', y = '')
 ```
 
-```{r}
-#| label: fig-bootstrap
-#| fig-width: 6
-#| fig-height: 6
-#| fig-cap: "A) Bootstrapped kernel density estimates of rice's thermal extent throughout the Holocene. Bootstrap resampling accounts for uncertainty in radiocarbon and phase-based dating of archaeological rice finds. Contemporary temperature tresholds indicated in red. B) Estimated 97.5% quantiles from the bootstrapped dataset. Contemporary quantiles indicated in red."
 
-trace_boot <- readRDS('data/data-derived/trace_boot.rds')
-
-# contemporary quantiles for plotting
-quant_dat <- quant_975 |>
-               select(-quantile) |>
-               setNames(c('MAT', 'TMAX', 'TWARM')) |>
-              pivot_longer(everything())
-
-boot_1 <- trace_boot %>%
-  filter(time <= -2000) %>%
-  select(rep, MAT:TWARM) %>%
-  pivot_longer(MAT:TWARM) %>%
-  group_by(rep, name) %>%
-  tidy_kde() %>%
-ggplot(aes(value, estimate)) +
-  geom_line(alpha = 0.01, aes(group = rep)) +
-  facet_wrap(~name, scales = 'free_y', nrow = 3) +
-  geom_vline(data = quant_dat, aes(xintercept = as.numeric(value)), linetype = 2, color = 'red') +
-  labs(x = 'Temperature')
-
-boot_2 <- trace_boot %>%
-  filter(time <= -2000) %>%
-  pivot_longer(MAT:TWARM, values_to = 'temperature') %>%
-  mutate(temperature = units::set_units(temperature, 'degree_c')) %>%
-  group_by(rep, name) %>%
-  reframe(value = quantile(temperature, 0.975, type = 8)) %>%
-  ggplot(aes(value)) +
-    geom_histogram() +
-    facet_wrap(~name, scales = 'free_x', nrow = 3) +
-    labs(x = 'Temperature') +
-    theme_bw() +
-    geom_vline(data = quant_dat, aes(xintercept = value), linetype = 2, color = 'red')
-
-rm(trace_boot, quant_dat)
-
-boot_1 + boot_2 +  plot_annotation(tag_levels = 'A')
-```
 
 ```{r}
 #| label: fig-displacement
