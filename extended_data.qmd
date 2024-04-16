@@ -250,62 +250,6 @@ ggplot() +
 ```
 
 ```{r}
-#| label: ens
-#| fig-width: 6
-#| fig-height: 4
-#| cache: true
-
-ens_mean <- st_apply(cmip6, 1:4, mean)
-
-ggplot() +
-  geom_stars(data = slice(ens_mean, 'variable', 2) > units::drop_units(bio10_limit), downsample = 20) +
-  facet_wrap(~ssp) +
-  scale_fill_manual(values = c('grey', 'red'), 
-                    name = paste0('twarm > ', bio10_limit), 
-                    na.value = NA, na.translate = FALSE) +
-  geom_sf(data = coasts) +
-  labs(x = '', y = '')
-
-ggplot() +
-  geom_stars(data = slice(ens_mean, 'variable', 1) > units::drop_units(bio1_limit), downsample = 20) +
-  facet_wrap(~ssp) +
-  scale_fill_manual(values = c('grey', 'red'), 
-                    name = paste0('MAT > ', bio1_limit), 
-                    na.value = NA, na.translate = FALSE) +
-  geom_sf(data = coasts) +
-  labs(x = '', y = '')
-
-ggplot() +
-  geom_stars(data = slice(ens_mean, 'variable', 3) > units::drop_units(bio5_limit), downsample = 20) +
-  facet_wrap(~ssp) +
-  scale_fill_manual(values = c('grey', 'red'), 
-                    name = paste0('tmax > ', bio5_limit), 
-                    na.value = NA, na.translate = FALSE) +
-  geom_sf(data = coasts) +
-  labs(x = '', y = '')
-```
-
-```{r}
-#| label: fig-erb-recon
-#| fig-width: 6
-#| fig-height: 6
-#| fig-cap: "EOF analysis of Holocene temperature reconstruction reveals two leading modes of decadal-scale variability that collectively explain 86% of the decadal scale temperature variability. We focus on the period from 7000 to 1000 years ago to remove impacts from the last deglaciation and contemporary greenhouse gas emissions. These two modes reflect trends in North and South Asian variability. The northern part of China has become cooler while the South has become warmer over time."
-  
-library(tidyEOF)
-pat <- get_patterns(erb_decadal %>% filter(between(time, -7000, -1000)), 
-                    k = 2, scale = TRUE, rotate = FALSE)
-eof <- plot_eofs(pat) +
-  geom_sf(data = coasts) #+
-  #geom_sf(data = arch_trace_dat %>%
-  #filter(med_age < -2000), size = 0.5)
-
-amp <- plot_amps(pat, scaled = FALSE) + 
-  geom_smooth()
-
-eof / amp + plot_layout(heights = c(2,1))
-```
-
-```{r}
 #| label: fig-bootstrap
 #| fig-width: 6
 #| fig-height: 6
