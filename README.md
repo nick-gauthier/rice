@@ -4,6 +4,6 @@ Manuscript available [here](https://github.com/nick-gauthier/rice/blob/main/main
 
 Data preprocessing and computationally intensive analyses available [here](https://github.com/nick-gauthier/rice/blob/main/methods.qmd). Code for the genetic offset analysis is available at [this repository](https://github.com/ornobalam/riceGenomicOffset).
 
-Supplementary analyses and older versions of the main analyses are archived [here](https://github.com/nick-gauthier/rice/blob/main/extras/) temporarily, but are subject to change and reorganization.
+Extended data figures and tables are available [here](https://github.com/nick-gauthier/rice/blob/main/extended_data.qmd). Supplementary and older versions of the main analyses are archived [here](https://github.com/nick-gauthier/rice/blob/main/extras/) temporarily, but are subject to change and reorganization.
 
 
