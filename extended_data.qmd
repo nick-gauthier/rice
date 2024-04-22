@@ -132,6 +132,7 @@ left_join(quants_mod, quants_mod_monfreda, by = 'quantile') %>%
                                                 'TWARM'), 
                                       spans = c(1,4,4,4)))  
 ```
+
 ```{r}
 #| label: fig-bootstrap
 #| fig-width: 6
@@ -148,7 +149,7 @@ quant_dat <- quant_975 |>
 
 boot_1 <- trace_boot %>%
   filter(time <= -2000) %>%
-  select(rep, MAT:TWARM) %>%
+  select(rep, MAT, TMAX = tmax, TWARM = twarm) %>%
   pivot_longer(MAT:TWARM) %>%
   group_by(rep, name) %>%
   tidy_kde() %>%
@@ -159,6 +160,7 @@ ggplot(aes(value, estimate)) +
   labs(x = 'Temperature')
 
 boot_2 <- trace_boot %>%
+  rename(TMAX = tmax, TWARM = twarm) %>%
   filter(time <= -2000) %>%
   pivot_longer(MAT:TWARM, values_to = 'temperature') %>%
   mutate(temperature = units::set_units(temperature, 'degree_c')) %>%
@@ -212,7 +214,6 @@ country_stats %>%
               values_from = percent) %>%
   select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
   knitr::kable(caption = "Percent land area surpassing MAT threshold")
-
 
 country_stats %>%
   mutate(percent = round(percent)) %>%
@@ -283,8 +284,6 @@ ggplot() +
   geom_sf(data = coasts) +
   labs(x = '', y = '')
 ```
-
-
 
 ```{r}
 #| label: fig-displacement

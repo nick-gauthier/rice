@@ -307,29 +307,6 @@ These repeated instances of rice's diversification and shifting ranges throughou
 Although rice has spread to warmer environments since its domestication, the magnitude of this change over the past 9,000 years is small relative to anticipated changes by the end of this century. Multiple climate-model projections and future socioeconomic and emissions scenarios show large shifts in mean annual temperatures in regions where rice is currently cultivated intensively, particularly in South, Southeast and Island Southeast Asia (@fig-future-densities). Mean annual temperature will exceed `r round(bio1_limit)`℃ for a substantial area of current occurrences in the years 2070-2100. Large parts of South, Southeast, and Island SE Asia will experience temperature conditions for which there is no analogue in the history of the cultivation and domestication of rice over at least the past 9,000 years (@fig-future-maps, Extended Data Figure 2). Although the extent of these projected shifts vary among climate models and emissions scenarios, the overall direction of this change is consistent (Extended Data Figure 3-5).
 
 ```{r}
-#| label: cmip6-data
-model_names <- c('gfdl', 'ipsl', 'mpi', 'mri', 'ukesm')
-ssp_names <- c('ssp126', 'ssp370', 'ssp585')
-
-cmip6 <-  model_names %>%
-  map(paste,  ssp_names, sep = '/' ) %>%
-  map_depth(1, ~paste0('~/Dropbox (UFL)/Data/CHELSA/CMIP6/2071-2100/', .x, '/bio') %>% as.list()) %>%
-  map_depth(2, ~list.files(.x, full.names = TRUE, pattern = '*_bio1_|_bio5_|_bio10_*')) %>%
-  map_depth(2, ~read_stars(.x) %>%
-              setNames(c('bio1', 'bio10', 'bio5')) %>%
-              st_redimension()) %>%
-  map(~do.call('c', .x) %>% 
-        setNames(c('SSP1-2.6', 'SSP3-7.0', 'SSP5-8.5')) %>% 
-        st_redimension()) %>%
-  do.call('c', .) %>%
-  setNames(model_names) %>%
-  st_redimension() %>%
-  st_set_dimensions(names = c('x', 'y', 'variable', 'ssp', 'model')) %>%
-  setNames('temperature') %>%
-  .[countries]
-```
-
-```{r}
 #| label: fig-future-densities
 #| fig-cap: "Predicted changes in biologically relevant temperature indicators over currently cultivated rice areas in Asia, relative to contemporary thermal thresholds (red dashed line). Shared socioeconomic pathways (SSPs) are scenarios of projected socioeconomic global changes used to derive greenhouse gas emission scenarios. SSP1 is a best case scenario where global cooperation and social and technological innovation are able to reduce greenhouse gas emissions. SSP3 is a middle-range scenario characterized by high population growth and global competition that hinders social and technological innovation. SSP5 is a worst-case scenario characterized by rapid economic growth and carbon emissions. All temperature estimates are derived from CMIP6 climate model ensemble mean estimates for the years 2071-2100, selected based on the ISIMIP3b protocol and downscaled by the CHELSA-V2.1 algorithm."
 
@@ -346,14 +323,7 @@ fig5_quantile_data <- quants_mod %>%
                       'Max temperature of the warmest month', 
                       'Max temperature of warmest quarter')))
 
-irri_occ %>%
-  st_extract(cmip6, .) %>%
-  as_tibble() %>%
-  st_drop_geometry() %>%
-  group_by(geometry, variable, ssp) %>%
-  summarize(temperature = mean(temperature)) %>%
-  ungroup() %>%
-  mutate(temperature = units::set_units(temperature, degree_c)) %>%
+readRDS(here('data/data-derived/fig_4_data.rds')) %>%
   bind_rows(pivot_longer(fig2_dat, everything(), 
                          names_to = 'variable', values_to = 'temperature') %>%
               mutate(ssp = 'present')) %>%
@@ -378,24 +348,13 @@ irri_occ %>%
 ```{r}
 #| label: fig-future-maps
 #| fig-cap: "Land areas projected to exceed each temperature threshold by 2071-2100 from CMIP6 simulations, based on the ISIMIP3b protocol and downscaled by CHELSA-V2.1. Color intensity corresponds to the count of climate model ensemble members surpassing the given threshold at each grid cell."
-#| cache: true
 #| fig-width: 11.5
 #| fig-height: 8
 
-fig5_map_data <- cmip6 %>%
-  split('variable') %>%
-  mutate(bio1 = bio1 > units::drop_units(bio1_limit),
-         bio10 = bio10 > units::drop_units(bio10_limit),
-         bio5 = bio5 > units::drop_units(bio5_limit)) %>%
-  rename(`Mean annual temperature` = bio1,
-         `Max temperature of warmest quarter` = bio10,
-         `Max temperature of warmest month` = bio5) %>%
-  merge(name = 'variable') %>%
-  st_apply(c('x', 'y', 'ssp', 'variable'), sum) %>%
-  mutate(sum = factor(sum)) 
+fig5_map_data <- readRDS(here('data/data-derived/fig5_map_data.rds'))
 
 ggplot() +
-  geom_stars(data = fig5_map_data, downsample = 10) +
+  geom_stars(data = fig5_map_data) +
   facet_grid(ssp~variable) +
   scale_fill_brewer(palette = 'OrRd', direction = 1, 
                     name = 'Models', 
@@ -408,27 +367,27 @@ A genetic offset analysis assessing the potential maladaptation of *O. sativa* s
 
 ```{r}
 #| label: fig-offsets
-#| fig-width: 12
-#| fig-height: 7
+#| fig-width: 10
+#| fig-height: 5
 #| cache: true
 #| fig-cap: "Estimated genetic offsets of sampled rice landraces for past and future scenarios relative to current baseline. Each point represents a distinct population sampled for genetic analysis. Higher genetic offsets indicate a greater degree of maladaptation to the particular temperature regime. The 'past' scenario reflects the highest modeled temperature at each location over the past 12,000 years. The future scenarios are averaged across all climate models in the ensemble."
 
-offset_2.6 <- readRDS("data/data-derived/for_plotting/offset_2.6_PC1_K8.rds")
-offset_7.0 <- readRDS("data/data-derived/for_plotting/offset_7.0_PC1_K8.rds")
-offset_8.5 <- readRDS("data/data-derived/for_plotting/offset_8.5_PC1_K8.rds")
-offset_past <- readRDS("data/data-derived/for_plotting/offset_past_PC1_K8.rds")
-ind_offset_2.6 <- readRDS("data/data-derived/for_plotting/ind_offset_2.6.rds")
-ind_offset_7.0 <- readRDS("data/data-derived/for_plotting/ind_offset_7.0.rds")
-ind_offset_8.5 <- readRDS("data/data-derived/for_plotting/ind_offset_8.5.rds")
-ind_offset_past <- readRDS("data/data-derived/for_plotting/ind_offset_past.rds")
+offset_2.6 <- readRDS("data/data-derived/genetics_plotting/offset_2.6_PC1_K8.rds")
+offset_7.0 <- readRDS("data/data-derived/genetics_plotting/offset_7.0_PC1_K8.rds")
+offset_8.5 <- readRDS("data/data-derived/genetics_plotting/offset_8.5_PC1_K8.rds")
+offset_past <- readRDS("data/data-derived/genetics_plotting/offset_past_PC1_K8.rds")
+ind_offset_2.6 <- readRDS("data/data-derived/genetics_plotting/ind_offset_2.6.rds")
+ind_offset_7.0 <- readRDS("data/data-derived/genetics_plotting/ind_offset_7.0.rds")
+ind_offset_8.5 <- readRDS("data/data-derived/genetics_plotting/ind_offset_8.5.rds")
+ind_offset_past <- readRDS("data/data-derived/genetics_plotting/ind_offset_past.rds")
 
-inds_geotagged <- readRDS("data/data-derived/for_plotting/indica_geotagged.rds")
-japs_geotagged <- readRDS("data/data-derived/for_plotting/japonica_geotagged.rds")
+inds_geotagged <- readRDS("data/data-derived/genetics_plotting/indica_geotagged.rds")
+japs_geotagged <- readRDS("data/data-derived/genetics_plotting/japonica_geotagged.rds")
 
 
 # this is the order of the japonica accessions in the genotype matrix
-japs <- read.table("data/data-derived/for_plotting/japs_order.txt")
-inds <- read.table("data/data-derived/for_plotting/inds_order.txt")
+japs <- read.table("data/data-derived/genetics_plotting/japs_order.txt")
+inds <- read.table("data/data-derived/genetics_plotting/inds_order.txt")
 
 indica_dat <- tibble(inds$V1,
                   ind_offset_2.6$offset,ind_offset_2.6$distance,
