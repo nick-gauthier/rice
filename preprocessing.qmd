@@ -46,6 +46,8 @@ available_cores <- parallel::detectCores(logical = TRUE)
 
 # Methods
 
+This is an extended version of the Materials and Methods section, interleaved with R code to reproduce the core data preprocessing workflow and computationally intensive analyses. The results of this notebook are archived separately to enable fast reproduction of the main and supplementary analyses presented in the manuscript.
+
 ## Climate Data
 
 We used high-resolution gridded climate data from version 2.1 of the CHELSA product [@karger2017, @Karger2018, @brun2022, @brun]. CHELSA incorporates bias-corrected outputs from the ERA-5 reanalysis with high-resolution terrain data using mechanistic relationships between local climate and terrain. Compared to other global gridded climate products, CHELSA offers superior performance in mountainous regions, and its reliance on high-quality reanalysis data instead of raw weather station data ensures greater accuracy and internal consistency among climate variables.
@@ -62,6 +64,7 @@ url_base <- 'https://os.zhdk.cloud.switch.ch/envicloud/chelsa/chelsa_V2/GLOBAL/c
 filenames <- c('CHELSA_bio1_1981-2010_V.2.1.tif', 
                'CHELSA_bio5_1981-2010_V.2.1.tif', 
                'CHELSA_bio10_1981-2010_V.2.1.tif',
+               'CHELSA_bio12_1981-2010_V.2.1.tif',
                'CHELSA_pet_penman_mean_1981-2010_V.2.1.tif') # PET used as land mask
 
 walk(filenames, function(x) {
@@ -75,12 +78,12 @@ walk(filenames, function(x) {
 Then read them in using `terra::rast()`.
 
 ```{r load-chelsa}
-chelsa_1km <- here('data/data-raw', filenames[-4]) |>
+chelsa_1km <- here('data/data-raw', filenames[-5]) |>
   rast() |>
-  setNames(c('bio1', 'bio5', 'bio10'))
+  setNames(c('bio1', 'bio5', 'bio10', 'bio12'))
 
 # get the PET map to use as a land mask on the CHELSA grid
-chelsa_mask <- here('data/data-raw', filenames[4]) |>
+chelsa_mask <- here('data/data-raw', filenames[5]) |>
   rast() %>%
   crop(bbox_world)
 ```
@@ -110,6 +113,131 @@ list(chelsa_1km,
      chelsa_5km_asia, 
      chelsa_10km_asia) %>%
   map(minmax, compute = TRUE)
+
+# this is after not cropping to bbox world
+mask_agg <- aggregate(chelsa_mask, fact = 10, cores = available_cores, na.rm = TRUE)
+plot(mask_agg)
+
+mask(chelsa_10km, mask_agg) |>
+  as_tibble() |>
+  ggplot(aes(bio1, bio12)) +
+  stat_density_2d(geom = 'polygon', aes(alpha = after_stat(level))) +
+  scale_alpha_continuous(guide = 'none') +
+  geom_vline(xintercept = 28, color = 'red', linetype = 2)
+```
+
+```{r}
+plot(mask((chelsa_10km[[1]] > 28) & (chelsa_10km[[4]] > 500), mask_agg))
+monfreda_occ |>
+   ggplot(aes(bio1, bio12)) +
+  stat_density_2d(geom = 'polygon', aes(alpha = after_stat(level))) +
+  scale_alpha_continuous(guide = 'none') +
+  geom_vline(xintercept = 28.6, color = 'red', linetype = 2)
+```
+
+```{r}
+mask(chelsa_10km, mask_agg) |>
+  as_tibble() |>
+  ggplot(aes(bio1, bio12)) +
+  stat_density_2d(geom = 'polygon', aes(alpha = after_stat(level))) +
+    stat_density_2d(data = monfreda_occ, fill = 'red', geom = 'polygon', aes(alpha = after_stat(level))) +
+  scale_alpha_continuous(guide = 'none') +
+  geom_vline(xintercept = 28, color = 'red', linetype = 2)+
+    geom_hline(yintercept = 1303, color = 'red', linetype = 2)
+
+
+mask(chelsa_10km, mask_agg) |>
+  as_tibble() |>
+  ggplot(aes(bio10, bio12)) +
+  stat_density_2d(geom = 'polygon', aes(alpha = after_stat(level))) +
+    stat_density_2d(data = monfreda_occ, fill = 'red', geom = 'polygon', aes(alpha = after_stat(level))) +
+  scale_alpha_continuous(guide = 'none') +
+  geom_vline(xintercept = 32.7, color = 'red', linetype = 2)+
+    geom_hline(yintercept = 1303, color = 'red', linetype = 2)
+
+mask(chelsa_10km, mask_agg) |>
+  as_tibble() |>
+  ggplot(aes(bio5, bio12)) +
+  stat_density_2d(geom = 'polygon', aes(alpha = after_stat(level))) +
+    stat_density_2d(data = monfreda_occ, fill = 'red', geom = 'polygon', aes(alpha = after_stat(level))) +
+  scale_alpha_continuous(guide = 'none') +
+  geom_vline(xintercept = 40.4, color = 'red', linetype = 2) +
+    geom_hline(yintercept = 1303, color = 'red', linetype = 2)
+```
+
+```{r}
+mask(chelsa_10km, mask_agg) |>
+  as_tibble() |>
+  ggplot(aes(bio1, bio12)) +
+  stat_density_2d(alpha = .5) +
+    stat_density_2d(data = monfreda_occ, color = 'red', alpha = .5) +
+  geom_vline(xintercept = 28.2, color = 'black', linetype = 2) +
+    geom_hline(yintercept = 1303, color = 'black', linetype = 2)
+```
+
+```{r}
+
+mask(chelsa_10km, mask_agg) |>
+  as_tibble() |>
+  ggplot(aes(bio10, bio12)) +
+  stat_density_2d(geom = 'polygon', aes(alpha = after_stat(level))) +
+  scale_alpha_continuous(guide = 'none') +
+  geom_vline(xintercept = 32.7, color = 'red', linetype = 2)
+```
+
+```{r}
+mon_test <- monfreda_fraction %>%
+  rast() %>%
+  clamp(lower = 0.05, values = FALSE) 
+plot(mon_test)
+plot(mask(crop((chelsa_10km[[3]] > 32.7), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)) |> crop(bbox))
+test_map <- mask(crop((chelsa_10km[[3]] > 32.7), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)) |> crop(bbox)
+test_map2 <- mask(crop((chelsa_10km[[1]] > 28.2), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)) |> crop(bbox)
+test_map3 <- mask(crop((chelsa_10km[[2]] > 40.4), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)) |> crop(bbox)
+
+test_map4 <- mask(crop((chelsa_10km[[3]] > 32.7), mon_test) & is.na(mon_test), crop(mask_agg, mon_test)) |> crop(bbox)
+test_map5 <- mask(crop((chelsa_10km[[1]] > 28.2), mon_test) & is.na(mon_test), crop(mask_agg, mon_test)) |> crop(bbox)
+test_map6 <- mask(crop((chelsa_10km[[2]] > 40.4), mon_test) & is.na(mon_test), crop(mask_agg, mon_test)) |> crop(bbox)
+library(mapview)
+
+ggplot() +
+  geom_stars(data = st_as_stars(test_map)) +
+    geom_sf(data = countries, color = 'white', fill = NA)
+ggplot() +
+  geom_stars(data = st_as_stars(test_map2)) +
+    geom_sf(data = countries, color = 'white', fill = NA)
+ggplot() +
+  geom_stars(data = st_as_stars(test_map3)) +
+    geom_sf(data = countries, color = 'white', fill = NA)
+ggplot() +
+  geom_stars(data = st_as_stars(test_map4)) +
+    geom_sf(data = countries, color = 'white', fill = NA)
+ggplot() +
+  geom_stars(data = st_as_stars(test_map5)) +
+    geom_sf(data = countries, color = 'white', fill = NA)
+ggplot() +
+  geom_stars(data = st_as_stars(test_map6)) +
+    geom_sf(data = countries, color = 'white', fill = NA)
+
+
+
+ggplot() +
+  geom_stars(data = st_as_stars( mask(crop((chelsa_10km[[3]] > 32.7), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)))) +
+    geom_sf(data = countries, color = 'white', fill = NA)
+
+
+ggplot() +
+  geom_stars(data = st_as_stars( mask(crop((chelsa_10km[[1]] > 28.2), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)))) +
+    geom_sf(data = countries, color = 'white', fill = NA)
+
+ggplot() +
+  geom_stars(data = st_as_stars( mask(crop((chelsa_10km[[1]] > 28.2), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)))) +
+    geom_sf(data = countries, color = 'white', fill = NA)
+
+ggplot() +
+  geom_stars(data = st_as_stars( mask(crop((chelsa_10km[[2]] > 40.4), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)))) +
+    geom_sf(data = countries, color = 'white', fill = NA)
+
 ```
 
 ### Paleoclimate reconstructions
@@ -117,7 +245,7 @@ list(chelsa_1km,
 Past climate data were derived from the CHELSA-TraCE21k product, a downscaled version of TraCE-21k simulation of the CCSM3 climate model spanning the last 21,000 years, at 100 year intervals [@karger2023, @He2011]. This product uses the older CHELSA V1.2 algorithm, along with a trend-preserving bias correction and topographic correction for shifting ice sheets across the deglacial period.
 
 ```{r chelsa-trace}
-# this is not portable nor easily downloadable, will have to do something to enable reproducibility. The entire dataset is ~300gb. Instead, we save the data extracted at the archaeological site points later on.
+# this is not portable nor easily downloadable (the entire dataset is ~300gb). Instead, we save the data extracted at the archaeological site points later on.
 
 trace_order <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01', 
                           full.names = FALSE) %>%
@@ -141,11 +269,96 @@ chelsa_trace <- c(trace_tmp, trace_tmax, trace_twarm) %>%
   st_set_dimensions('time', values = seq(-12, 0, 0.1) * 1000, names = 'time') %>%
   setNames(c('MAT', 'tmax', 'twarm'))
 
-# test of using vsicurl to get data w/out download, too slow for most applications
+# save the the area-averaged time series as well
+sf_use_s2(FALSE)
+trace_ts <- list('bio01', 'bio05', 'bio10') |>
+  map(~ paste0('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/', .x) |>
+        list.files(full.names = TRUE) %>%
+        .[trace_order] |>
+        read_stars(along = 'time') |>
+          st_downsample(n = 50) |>
+  st_crop(asia_bbox_sf)) %>%
+  do.call('c', .) |>
+  st_set_dimensions('time', values = seq(12, 0, -0.1), names = 'time') |>
+  setNames(c('bio1', 'bio5', 'bio10')) |>
+  st_apply(3, mean) |>
+  as_tibble()
+sf_use_s2(TRUE)
+
+write_rds(trace_ts, here('data/data-derived/trace_ts.rds'))
+
+
+# test of using vsicurl to stream data w/out download, too slow for most applications
 #test <- rast('/vsicurl/https://os.zhdk.cloud.switch.ch/envicloud/chelsa/chelsa_V1/chelsa_trace/bio/CHELSA_TraCE21k_bio01_-100_V1.0.tif')
 #plot(test)
 ```
 
+Download, import, and process the LGMR and Erb et al. reconstructions. Save the results clipped to Asia for further analysis.
+
+```{r}
+erb_url <- 'https://zenodo.org/records/6426332/files/holocene_reconstruction.nc'
+lgmr_url <- 'https://www.ncei.noaa.gov/pub/data/paleo/reconstructions/osman2021/LGMR_SAT_climo.nc'
+
+erb_dest <- here('data/data-raw/holocene_reconstruction.nc')
+lgmr_dest <- here('data/data-raw/LGMR_SAT_climo.nc')
+
+
+if (!file.exists(erb_dest)) download.file(erb_url)
+if (!file.exists(lgmr_dest)) download.file(lgmr_url)
+ 
+sf_use_s2(FALSE)
+erb_rast <- read_ncdf(erb_dest, var = 'recon_tas_ens') |>
+  st_set_crs(4326) |>
+  st_crop(asia_bbox_sf) |>
+  st_as_stars() |>
+  st_apply(c(1,2,4), function(x) c(sat_mean = mean(x), sat_sd = sd(x))) |>
+  split(1) |>
+  mutate(sat_low = sat_mean - sat_sd,
+         sat_high = sat_mean + sat_sd)
+
+lgmr_rast <- read_ncdf(lgmr_dest, eps = .001, proxy = FALSE) |>
+  st_crop(asia_bbox_sf) |>
+  units::drop_units() |>
+  st_set_dimensions(names = c('x', 'y', 'time')) |>
+  filter(time <= 12000) 
+sf_use_s2(TRUE)
+
+write_rds(erb_rast, here('data/data-derived/erb_rast.rds'))
+write_rds(lgmr_rast, here('data/data-derived/lgmr_rast.rds'))
+
+plot(erb_rast[,,,1:10])
+plot(lgmr_rast[,,,1:10])
+```
+
+```{r}
+# erb_area_total <- st_area(erb_rast) |>
+#   pull(area) |> 
+#   sum()
+# 
+# (erb_rast * st_area(erb_rast)) |>
+#   st_apply(3, sum)  |>
+#   as_tibble() |>
+#   mutate(across(-ages, ~units::drop_units(.x / erb_area_total)),
+#          time = ages / 1000) |>
+#   select(-ages) |>
+#   write_rds('data/data-derived/erb_ts.rds')
+```
+
+```{r}
+
+
+#this compares with and without weighting
+# lgmr_ens |>
+#   ggplot() +
+#   geom_line(aes(x = time, y = sat - 20.23)) +
+#   geom_ribbon(aes(x = time, ymin = sat_low - 20.23, ymax = sat_high - 20.23), alpha = 0.1) +
+#  geom_line(data = lgmr_anom_ts,  aes(time / 1000, anom), color = 'red') +
+#    geom_ribbon(data = lgmr_anom_ts, aes(x = time / 1000, ymin = anom_lower, ymax = anom_upper), alpha = 0.1, fill = 'red') +
+#   geom_line(data = erb_ts, aes(x = ages/1000, y = mean)) +
+#   geom_ribbon(data = erb_ts, aes(x = ages / 1000, ymin = sat_low, ymax = sat_high ), alpha = 0.1) #+
+   # geom_line(data = trace_ts, aes(x = time, y = bio1 - 19.737), color = 'green')
+ 
+```
 ### Future climate projections
 
 Future climate model ensembles were derived from phase six of the Coupled Model Intercomparison Project (CMIP6) [@eyring2016], using the subset of bias-corrected models and scenarios used in phase 3b of the Inter-Sectoral Impact Model Intercomparison Project (ISIMIP) [@lange2019], bilinearly interpolated to the CHELSA V2.1 basemap using the delta change approach [@brun, @brun2022].
@@ -343,7 +556,7 @@ ggplot() +
 
 #### Combined
 
-Thin the two sets of occurrence records to a 1km grid and combine. So let's combine this with the GBIF occurrence above. It definitely helps us sample the temperate varieties better, but its still a minor influence relative to the numbers of gbif points. also include These are predictions from a classifier that use climate data, so not exactly useful here but interesting to see.
+Thin the two sets of occurrence records to a 1km grid and combine. So let's combine this with the GBIF occurrence above. It definitely helps us sample the temperate varieties better, but its still a minor influence relative to the numbers of gbif points. These are predictions from a classifier that use climate data, so not exactly useful here but interesting to see.
 
 ```{r}
 rufip_thin <- dismo::gridSample(
@@ -551,7 +764,7 @@ save(irri_occ, monfreda_occ, occ_dat,
 
 ## Archaeological Data
 
-We used past rice occurrence data sourced from archaeological sites, as synthesized in @Guedes2018 and @long2022 and primarily derived from version 2 of the Rice Archaeological Database [@silva2015]. We also included observations from @crema2022 to increase data coverage in Japan. These records are typically of botanical remains, believed to represent O. sativa japonica from these archaeological sites, with less intensive sampling of indica varieties from northern India. However, based on their chronology, some occurrences might pertain to the wild-type O. rufipogon or O. nivara.
+We used past rice occurrence data sourced from archaeological sites, as synthesized in @Guedes2018 and @long2022 and primarily derived from version 2 of the Rice Archaeological Database [@silva2015]. We also included observations from @crema2022 to increase data coverage in Japan. These records are typically of botanical remains, believed to represent O. sativa japonica from these archaeological sites, with less intensive sampling of indica varieties from northern India. However, based on their chronology, some occurrences might pertain to the wild-type O. rufipogon or O. nivara. [GUTAKER AND RAD3 AS WELL]{.underline}
 
 ```{r}
 # some of these datasets include sensitive site locations, so full reproducibility will be tricky
@@ -603,6 +816,8 @@ japan_arch <- read_csv('data/data-raw/sciadv.adc9171_data_s1.csv') %>% # two row
   st_as_sf(coords = c('Longitude', 'Laitude'), crs = 4326) %>% # "Laitude"
   rename(site = SiteName_en, labcode = LabCode) |>
   mutate(source = 'japan')
+
+not_near <- function(x, y, dist) !st_is_within_distance(x, y, dist)
 
 rad <- read_excel('data/data-raw/Rice_RAD3_OWCAD v0_9977.xlsx') %>%
   st_as_sf(coords = c('Longitude', 'Latitude'), crs = 4326) %>%
@@ -661,9 +876,33 @@ arch_dat <- bind_rows(c14 = c14_cleaned,
   mutate(across(contains('age'), ~. * -1))
 
 rm(long_filter, japan_arch, long, gb2018, rad)
+
+arch_dat |>
+  filter(site == 'Baligang')
+
+he <- read_csv('~/Dropbox (UFL)/he_s1table1_mixed_farming_sites.csv') |>
+  st_as_sf(coords = c('Longitude (E)', 'Latitude (N)'), crs = 4326)
+
+he2 <- read_excel('~/Downloads/Supplementary data/Supplementary data 2.xlsx') |>
+  filter(`Material dated` == 'Rice',
+         !is.na(`Longitude(E)`),
+         is.na(`Accepted/rejected`)) |>
+  st_as_sf(coords = c('Longitude(E)', 'Latitude(N)'), crs = 4326)
+
+read_sf('~/Downloads/A dataset of archaeobotanical macroremains (staple crops) during the Neolithic and Bronze Ages in northern China V1.0.kml') |>
+  plot()
+
+he3 <- read_excel('~/Downloads/A dataset of archaeobotanical macroremains (staple crops) during the Neolithic and Bronze Ages in northern China V1.0.xlsx', skip = 1) |>
+  filter(`Oryza sativa...17` > 0) |>
+    st_as_sf(coords = c('Longitude (E)', 'Latitude (N)'), crs = 4326)
+
+arch_dat
+library(mapview)
+mapview(arch_dat) + mapview(he, col.regions = 'red', cex = 5) + mapview(he2, col.regions = 'green', cex = 3)  + mapview(he3, col.regions = 'orange', cex = 2)
+plot(he)
 ```
 
-After data harmonization---which involved eliminating potential outliers, rectifying misclassifications, and removing duplicated site data---we were left with a comprehensive dataset of `r nrow(arch_dat)` dates from `r length(unique(arch_dat$site))` archaeological sites. These datasets comprise a mixture of direct radiocarbon dates on rice remains, alongside dates from associated contextual materials and ranges anchored in prevailing archaeological eras. We employed the Intcal20 calibration curve for recalibrating all radiocarbon dates, barring a single site in the southern hemisphere where we utilized SHcal20.
+After data harmonization---which involved eliminating potential outliers, rectifying misclassifications, and removing duplicated site data---we were left with a comprehensive dataset of `r nrow(arch_dat)` dates from `r length(unique(arch_dat$site))` archaeological sites. These datasets comprise a mixture of direct radiocarbon dates on rice remains, alongside median dates from associated contextual materials and ranges anchored in prevailing archaeological eras. We employed the Intcal20 calibration curve for recalibrating all radiocarbon dates, barring a single site in the southern hemisphere where we utilized SHcal20.
 
 ### Bootstrapping Archaeological Dates
 
@@ -914,4 +1153,3 @@ bind_rows(gen_past, gen_mod, gen_future, .id = 'time') %>%
 ## Computational Reproducibility
 
 All analyses carried out in \`R\` \[\@base\]. The entire analysis is run in a reproducible \\\`.qmd\\\` notebook.
-
