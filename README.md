@@ -3,7 +3,7 @@
 This repository contains the R notebooks used for the analysis presented in the manuscript "Projected Warming Will Exceed the Fundamental Thermal Niche of Rice Cultivation."
 - Main manuscript available [here](https://github.com/nick-gauthier/rice/blob/main/main.qmd). This notebook includes the main text, online methods, and generates all the main analysis figures preprocessed data.
 - Data preprocessing and computationally intensive analyses can be found [here](https://github.com/nick-gauthier/rice/blob/main/preprocessing.qmd). Code for the genetic offset analysis is available at [this repository](https://github.com/ornobalam/riceGenomicOffset).
-- Supplementary figures and tables are available [here](https://github.com/nick-gauthier/rice/blob/main/supplemental_materials.qmd).
+- Supplementary figures and tables are available [here](https://github.com/nick-gauthier/rice/blob/main/supplementary_materials.qmd).
   
 ## System Requirements
 
