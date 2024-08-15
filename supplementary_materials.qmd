@@ -1,5 +1,5 @@
 ---
-title: "Code for Supplementary Figures and Tables: Projected warming will exceed the long-term thermal limits of rice cultivation"
+title: "Supplementary Figures and Tables"
 format: pdf
 editor: visual
 html-table-processing: none
@@ -89,6 +89,7 @@ cmip6 <-  model_names %>%
   .[countries]
 ```
 
+
 ## Fig. S1.
 
 ```{r}
@@ -145,40 +146,6 @@ boot_1 + boot_2 +  plot_annotation(tag_levels = 'A')
 #| fig-height: 6
 #| fig-cap: "Comparison of Holocene temperature trends over Asia from transient climate models and reconstructions. A) Holocene trends in mean annual temperature, relative to the 3-5ka mean, from Osman et al. 2021 (black, one standard deviation uncertainty in grey), Erb et al. 2022 (blue), and CHELSA-TraCE21k (red). B) Comparison of annual, seasonal, and monthly temperature trends over Asia from CHELSA-TraCE21k."
 
-#erb_decadal <- readRDS('data/data-derived/older_file_archive/erb_decadal.rds')
-
-# trace_order <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01', 
-#                           full.names = FALSE) %>%
-#   str_sub(23, -10) %>% 
-#   as.numeric() %>% 
-#   order()
-# 
-# sf_use_s2(FALSE)
-# chelsa_trace <- list('bio01', 'bio05', 'bio10') |>
-#   map(~ paste0('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/', .x) |>
-#         list.files(full.names = TRUE) %>%
-#         .[trace_order] |>
-#         read_stars(along = 'time') |>
-#           st_downsample(n = 50) |>
-#   st_crop(st_bbox(erb_decadal))) %>%
-#   do.call('c', .) |>
-#   st_set_dimensions('time', values = seq(12, 0, -0.1), names = 'time') |>
-#   setNames(c('bio1', 'bio5', 'bio10'))
-
-# lgmr_ens <- read_ncdf('~/Dropbox (UFL)/LGMR_SAT_climo.nc', eps = .001, proxy = FALSE) |>
-#   st_crop(st_bbox(erb_decadal)) |>
-#   units::drop_units() |>
-#   st_set_dimensions(names = c('x', 'y', 'time')) |>
-#   filter(time <= 12000) |>
-#   mutate(sat_low = sat - sat_std,
-#          sat_high = sat + sat_std) |>
-#   st_apply(3, mean) |>
-#   as_tibble() |>
-#   mutate(time = time / 1000) 
-
-#sf_use_s2(TRUE)
-
-
 trace_ts <- read_rds(here('data/data-derived/trace_ts.rds'))
 
 a <- trace_ts |>
@@ -195,15 +162,6 @@ a <- trace_ts |>
   labs(x = 'Time (ka BP)', y = 'Temperature (C)') +
   scale_x_reverse(breaks = seq(0, 12, 2)) +
   theme_bw()
-
-# run separately to get the 3-5ka mean to subtract in the following plot
-#lgmr_ens |>
-#  filter(between(time, 3, 5)) |>
-#  summarize(across(everything(), mean))
-
-#trace_ts |>
-#  filter(between(time, 3, 5)) |>
-#  summarize(across(everything(), mean))
 
 # Calculate the area-weighted averaged temperatures and uncertainties from the Erb et al. reconstruction and save the results.
 erb_rast <- read_rds(here('data/data-derived/erb_rast.rds'))
@@ -252,16 +210,7 @@ lgmr_anom_ts <- (lgmr_anomalies * st_area(lgmr_rast_anom)) |>
     mutate(across(-time, ~units::drop_units(.x / lgmr_area_total)),
            time = time / 1000)
 
-#erb_ts2 <- erb_decadal |>
-#  st_apply(3, mean) |>
-#  as_tibble() |>
-#  mutate(time = time / -1000)
-
-
- b <- #lgmr_ens |>
-  ggplot(data = lgmr_anom_ts, aes(x = time)) +
-  # geom_line(aes(x = time, y = sat - 20.23)) +
-  # geom_ribbon(aes(x = time, ymin = sat_low - 20.23, ymax = sat_high - 20.23), alpha = 0.1) +
+b <- ggplot(data = lgmr_anom_ts, aes(x = time)) +
   geom_line(aes(y = anom)) +
   geom_ribbon(aes(ymin = anom_lower, ymax = anom_upper), alpha = 0.1) +
   geom_line(data = trace_ts, aes(x = time, y = bio1 - 19.737), color = 'red') +
@@ -269,14 +218,6 @@ lgmr_anom_ts <- (lgmr_anomalies * st_area(lgmr_rast_anom)) |>
     geom_ribbon(data = erb_ts, aes(ymin = sat_low , ymax = sat_high), alpha = 0.1, fill = 'blue') +
   scale_x_reverse(breaks = seq(0, 12, 2))  +
   labs(x = 'Time (ka BP)', y = 'Temperature anomaly (C)') 
-
-#  lgmr_ens |>
-#   ggplot(aes(time)) +
-#   geom_line(aes(y = sat )) +
-#   geom_ribbon(aes(ymin = sat_low , ymax = sat_high ), alpha = 0.1) +
-#   geom_line(data = trace_ts, aes(y = bio1 ), color = 'red') +
-#   scale_x_reverse(breaks = seq(0, 12, 2))  +
-#   labs(x = 'Time (ka)', y = 'Temperature (C)') 
 
 b + a + plot_layout(guides = 'collect', axes = 'collect') + plot_annotation(tag_levels = 'A', tag_suffix = ')')
 ```
@@ -288,7 +229,7 @@ b + a + plot_layout(guides = 'collect', axes = 'collect') + plot_annotation(tag_
 #| label: fig-kde-lgmr
 #| fig-width: 10
 #| fig-height: 6
-#| fig-cap: ""
+#| fig-cap: "Kernel density estimates of the thermal distribution by millennium across two different temperature datasets, with raw data points indicated in black and contemporary rice thermal limits in red. A) Temperature data are derived from CHELSA-TraCE21k V1.0 (Karger et al. 2023) (same as Figure 3b in main text). B) Temperature data derived from the Last Glacial Maximum Reanalysis (LGMR) dataset (Osman et al. 2022). C) Difference in kernel density estimates of mean annual temperature (MAT) between the CHELSA-TraCE21k and LGMR datasets."
 
 new_lgmr_times <- lgmr_rast |>
   st_get_dimension_values('time') |>
@@ -375,15 +316,14 @@ country_stats %>%
 
 {{< pagebreak >}}
 
-
 ## Fig. S5.
 
 ```{r}
 #| label: fig-niche-all-models-bio1
 #| cache: true
-#| fig-width: 8
-#| fig-height: 12
-#| fig-cap: Predicted changes in mean annual temperature over currently cultivated rice areas in Asia for multiple CMIP6 ensemble members.
+#| fig-width: 6
+#| fig-height: 5
+#| fig-cap: "Predicted changes in mean annual temperature over currently cultivated rice areas in Asia for multiple CMIP6 ensemble members."
 
 ggplot() +
   geom_stars(data = slice(cmip6, 'variable', 1) > units::drop_units(bio1_limit), downsample = 20) +
@@ -402,9 +342,9 @@ ggplot() +
 ```{r}
 #| label: fig-niche-all-models-bio10
 #| cache: true
-#| fig-width: 8
-#| fig-height: 12
-#| fig-cap: Predicted changes in mean maximum temperature of the warmest quarter over currently cultivated rice areas in Asia for multiple CMIP6 ensemble members.
+#| fig-width: 6
+#| fig-height: 5
+#| fig-cap: "Predicted changes in mean maximum temperature of the warmest quarter over currently cultivated rice areas in Asia for multiple CMIP6 ensemble members."
 
 ggplot() +
   geom_stars(data = slice(cmip6, 'variable', 2) > units::drop_units(bio10_limit), downsample = 20) +
@@ -422,9 +362,9 @@ ggplot() +
 ```{r}
 #| label: fig-niche-all-models-bio5
 #| cache: true
-#| fig-width: 8
-#| fig-height: 12
-#| fig-cap: Predicted changes in mean maximum temperature of the warmest month over currently cultivated rice areas in Asia for multiple CMIP6 ensemble members.
+#| fig-width: 6
+#| fig-height: 5
+#| fig-cap: "Predicted changes in mean maximum temperature of the warmest month over currently cultivated rice areas in Asia for multiple CMIP6 ensemble members."
 
 ggplot() +
   geom_stars(data = slice(cmip6, 'variable', 3) > units::drop_units(bio5_limit), downsample = 20) +
@@ -560,306 +500,14 @@ country_stats %>%
   knitr::kable()
 ```
 
-```{r}
-knitr::knit_exit()
-```
+{{< pagebreak >}}
 
 
-```{r}
-#| label: fig-recon-eof
-#| fig-width: 12
-#| fig-height: 12
-#| fig-cap: "Empirical orthogonal function analysis of Holocene temperature reconstruction reveals two leading modes of variability. We focus on the period from 7000 to 1000 years ago to remove impacts from the last deglaciation and contemporary greenhouse gas emissions. These two modes reflect trends in North and South Asian variability. The northern part of China has become cooler while the South has become warmer over time."
-  
+## Data S1. (separate file)
+`main.qmd` -- A quarto notebook containing the R code sufficient to reproduce the figures in the main analysis.
 
-# library(tidyEOF)
-# pat <- get_patterns(erb_decadal %>% filter(between(time, -10000, -2000)), 
-#                     k = 2, scale = TRUE, rotate = TRUE)
-# eof <- plot_eofs(pat) +
-#   geom_sf(data = coasts)
-# 
-# amp <- plot_amps(pat, scaled = TRUE) + 
-#   geom_smooth()
-# 
-# 
-# sf_use_s2(FALSE)
-# lgmr <- read_ncdf('~/Dropbox (UFL)/LGMR_SAT_climo.nc', eps = .001, proxy = FALSE) |>
-#   select(sat) |>
-#   st_crop(st_bbox(erb_decadal)) |>
-#   units::drop_units() |>
-#   st_set_dimensions(names = c('x', 'y', 'time')) |>
-#   filter(between(time, 2000, 10000))
-# sf_use_s2(TRUE)
-# 
-# lgmr_pat <- get_patterns(lgmr, k = 2, scale = TRUE, rotate = TRUE)
-# lgmr_eof <- plot_eofs(lgmr_pat) +
-#   geom_sf(data = coasts)
-# 
-# lgmr_amp <- plot_amps(lgmr_pat) + 
-#   geom_smooth()
-# 
-# 
-# (eof / amp + plot_layout(heights = c(2,1))) | (lgmr_eof / lgmr_amp + plot_layout(heights = c(2,1))) + plot_annotation(tag_levels = 'A', tag_suffix = ')')
-```
+## Data S2. (separate file)
+`supplementary_materials.qmd` -- A quarto notebook containing the R code sufficient to reproduce the supplementary figures and tables.
 
-```{r fig.asp = 1}
-# sf_use_s2(FALSE)
-# tmp <- here('../synchrony/data/data-raw/trace.01-36.22000BP.cam2.TREFHT.22000BP_decavg_400BCE.nc') |>
-#   read_ncdf(var = 'TREFHT', eps = 0.01) |>
-#   st_set_dimensions('lon', names = 'x') |>
-#   st_set_dimensions('lat', names = 'y') |>
-#   st_warp(st_as_stars(st_bbox(), dx = 3.75, dy = 3.709)) |>
-#   filter(between(time, -10, -2)) |>
-#   st_crop(st_bbox(erb_decadal))
-# sf_use_s2(TRUE)
-# 
-# st_apply(tmp, 3, mean) |>
-#   as_tibble() |>
-#   ggplot(aes(time, mean)) +
-#   geom_line()
-# 
-# trace_pat_low <- get_patterns(tmp, k = 2, scale = TRUE, rotate = TRUE)
-# 
-# trace_eof_low <- plot_eofs(trace_pat_low) +
-#   geom_sf(data = coasts)
-# 
-# trace_amp_low <- plot_amps(trace_pat_low) +
-#   geom_smooth()
-# 
-# trace_eof_low / trace_amp_low + plot_layout(heights = c(2,1))
-```
-
-```{r}
-# trace_bio1_pat <- get_patterns(chelsa_trace['bio1'] |> filter(between(time, 2, 10)), k = 2, scale = FALSE, rotate = TRUE)
-# trace_bio1_eof <- plot_eofs(trace_bio1_pat) +
-#   geom_sf(data = coasts)
-# trace_bio1_amp <- plot_amps(trace_bio1_pat) +
-#   geom_smooth() +
-#   scale_x_reverse(breaks = seq(0, 12, 2))
-# 
-# trace_bio5_pat <- get_patterns(chelsa_trace['bio5'], k = 3, scale = TRUE)
-# trace_bio5_eof <- plot_eofs(trace_bio5_pat) +
-#   geom_sf(data = coasts)
-# trace_bio5_amp <- plot_amps(trace_bio5_pat) +
-#   geom_smooth() +
-#   scale_x_reverse(breaks = seq(0, 12, 2))
-# 
-# trace_bio10_pat <- get_patterns(chelsa_trace['bio10'], k = 3, scale = TRUE)
-# trace_bio10_eof <- plot_eofs(trace_bio10_pat) +
-#   geom_sf(data = coasts)
-# trace_bio10_amp <- plot_amps(trace_bio10_pat) +
-#   geom_smooth() +
-#   scale_x_reverse(breaks = seq(0, 12, 2))
-# 
-# 
-# trace_bio1_eof / trace_bio1_amp + plot_layout(heights = c(2,1))
-# trace_bio5_eof / trace_bio5_amp + plot_layout(heights = c(2,1))
-# trace_bio10_eof / trace_bio10_amp + plot_layout(heights = c(2,1))
-```
-
-```{r}
-#new_erb_times <- erb_decadal |>
-#  st_get_dimension_values('time') %>% 
-#  `*`(-1) |>
-#  years() %>%
-#  `-`(ym('1950-01'), .)
-
-# new_lgmr_times <- lgmr_rast |>
-#   st_get_dimension_values('time') |>
-#   years() %>%
-#   `-`(ym('1950-01'), .)
-# 
-# #erb_decadal2 <- erb_decadal[,,,1200:1] |> st_set_dimensions('time', values = rev(new_erb_times))
-# # library(terra)
-# lgmr2 <- lgmr_rast |>
-#   st_set_dimensions('time', values = (new_lgmr_times)) %>%
-#   .[,,,61:1]
-#   #terra::rast() |>
-#   #terra::disagg(method = 'bilinear', fact = 10) %>%
-#   #.[[61:1]] |>
-#   #st_as_stars() |>
-#   #st_set_dimensions('time', values = rev(new_lgmr_times))
-# 
-# arch_trace_2 <- arch_trace_dat |>
-#   mutate(time = ym('1950-01') - years(as.integer(med_age) * -1))
-# 
-# #erb_extract_test <- arch_trace_2 %>%
-# #  st_extract(erb_decadal2, ., time_column = 'time', interpolate_time = TRUE) %>%
-# #  st_drop_geometry() %>%
-# #  bind_cols(arch_trace_dat, .) |>
-# #  remove_missing()
-# 
-# 
-# lgmr_extract_test <- arch_trace_2 %>%
-#   st_extract(lgmr2, ., time_column = 'time', interpolate_time = TRUE) %>%
-#   st_drop_geometry() %>%
-#   bind_cols(arch_trace_dat, .) |>
-#   remove_missing()
-
-# tmp_times <- tmp |># low res trace
-#     st_get_dimension_values('time') %>%
-#   `*`(-1000) |>
-#   as.integer() |>
-#     years() %>%
-#     `-`(ym('1950-01'), .)
-# 
-# tmp2 <- tmp |> 
-#   st_set_dimensions('time', values = tmp_times)
-# 
-# tmp_extract_test <- arch_trace_2 %>%
-#   st_extract(tmp2, ., time_column = 'time', interpolate_time = TRUE) %>%
-#   st_drop_geometry() %>%
-#   bind_cols(arch_trace_dat, .) |>
-#   remove_missing()
-# 
-# 
-#   
-# time(tmp2)
-# tmp3 <- tmp2 |>
-#   aggregate(by = tmp_times[seq(1, 1210, 10)], FUN = mean) |> # average to centuries
-#   aperm(c(3, 1, 2))
-# 
-# tmp3
-# lgmr2
-# tmp_extract_test2 <- arch_trace_2 %>%
-#   st_extract(tmp3, ., time_column = 'time', interpolate_time = TRUE) %>%
-#   st_drop_geometry() %>%
-#   bind_cols(arch_trace_dat, .) |>
-#   remove_missing()
-```
-
-```{r}
-
-# arch_dens_mat <- erb_extract_test %>%
-#   ggplot(aes(MAT, mil)) +
-#   scale_y_discrete(limits = rev) +
-#   geom_density_ridges(aes(fill = mil), 
-#                       panel_scaling = TRUE, 
-#                       scale = 2, 
-#                       alpha = 0.5, 
-#                       jittered_points = TRUE, 
-#                       point_alpha = 0.25, 
-#                       point_size = 0.5) +
-#   labs(y = 'Millennium BP', x = 'Mean annual temperature') +
-#   geom_vline(xintercept = as.numeric(bio1_limit), linetype = 2, color = 'red') +
-#   scale_fill_brewer(palette = 'Spectral', guide = 'none') +
-#     scale_x_continuous(limits = c(0, 32))
-
-```
-
-
-
-```{r}
-# sanity check against present data
-# trace_tmp <- read_stars('../asia-holocene/data/data-derived/trace_tmp.tif')[,,,121, drop = TRUE]
-# 
-# base_test <- arch_trace_2 %>%
-#   st_extract(trace_tmp, .) %>%
-#   st_drop_geometry() %>%
-#   bind_cols(arch_trace_dat, .) |>
-#   remove_missing()
-# 
-# lgmr_test <- arch_trace_2 %>% # this is just the present time period?
-#   st_extract(lgmr[,,,1, drop = TRUE], .) %>%
-#   st_drop_geometry() %>%
-#   bind_cols(lgmr_extract_test, .) |>
-#   remove_missing()
-# 
-# 
-# arch_dens_erb <- erb_extract_test %>%
-#   ggplot(aes(tas, mil)) +
-#   scale_y_discrete(limits = rev) +
-#   geom_density_ridges(aes(fill = mil), 
-#                       panel_scaling = TRUE, 
-#                       scale = 2, 
-#                       alpha = 0.5, 
-#                       jittered_points = TRUE, 
-#                       point_alpha = 0.25, 
-#                       point_size = 0.5) +
-#   labs(y = 'Millennium BP', x = 'Mean annual temperature') +
-#   scale_fill_brewer(palette = 'Spectral', guide = 'none')
-# 
-# 
-# 
-# 
-# arch_dens_base <- base_test %>%
-#   ggplot(aes(`trace_tmp.tif`, mil)) +
-#   scale_y_discrete(limits = rev) +
-#   geom_density_ridges(aes(fill = mil), 
-#                       panel_scaling = TRUE, 
-#                       scale = 2, 
-#                       alpha = 0.5, 
-#                       jittered_points = TRUE, 
-#                       point_alpha = 0.25, 
-#                       point_size = 0.5) +
-#   labs(y = 'Millennium BP', x = 'Mean annual temperature') +
-#     geom_vline(xintercept = as.numeric(bio1_limit), linetype = 2, color = 'red') +
-#   scale_fill_brewer(palette = 'Spectral', guide = 'none') +
-#   scale_x_continuous(limits = c(0, 32))
-# 
-# arch_dens_base_2 <- base_test %>%
-#   ggplot(aes(MAT - `trace_tmp.tif`, mil)) +
-#   scale_y_discrete(limits = rev) +
-#   geom_density_ridges(aes(fill = mil), 
-#                       panel_scaling = TRUE, 
-#                       scale = 2, 
-#                       alpha = 0.5, 
-#                       jittered_points = TRUE, 
-#                       point_alpha = 0.25, 
-#                       point_size = 0.5) +
-#   labs(y = 'Millennium BP', x = 'Mean annual temperature') +
-#   scale_fill_brewer(palette = 'Spectral', guide = 'none')
-# 
-# arch_dens_base_lgmr <- lgmr_test %>%
-#   ggplot(aes(sat...12 - sat...14, mil)) +
-#   scale_y_discrete(limits = rev) +
-#   geom_density_ridges(aes(fill = mil), 
-#                       panel_scaling = TRUE, 
-#                       scale = 2, 
-#                       alpha = 0.5, 
-#                       jittered_points = TRUE, 
-#                       point_alpha = 0.25, 
-#                       point_size = 0.5) +
-#   labs(y = 'Millennium BP', x = 'Mean annual temperature') +
-#   scale_fill_brewer(palette = 'Spectral', guide = 'none')
-# 
-# arch_dens_trace <- tmp_extract_test %>%
-#   ggplot(aes(TREFHT - 273.15, mil)) +
-#   scale_y_discrete(limits = rev) +
-#   geom_density_ridges(aes(fill = mil), 
-#                       panel_scaling = TRUE, 
-#                       scale = 2, 
-#                       alpha = 0.5, 
-#                       jittered_points = TRUE, 
-#                       point_alpha = 0.25, 
-#                       point_size = 0.5) +
-#   labs(y = 'Millennium BP', x = 'Mean annual temperature') +
-#   scale_fill_brewer(palette = 'Spectral', guide = 'none') +
-#       geom_vline(xintercept = as.numeric(bio1_limit), linetype = 2, color = 'red') 
-# 
-# 
-# arch_dens_trace2 <- tmp_extract_test2 %>% # century averages
-#   ggplot(aes(TREFHT - 273.15, mil)) +
-#   scale_y_discrete(limits = rev) +
-#   geom_density_ridges(aes(fill = mil), 
-#                       panel_scaling = TRUE, 
-#                       scale = 2, 
-#                       alpha = 0.5, 
-#                       jittered_points = TRUE, 
-#                       point_alpha = 0.25, 
-#                       point_size = 0.5) +
-#   labs(y = 'Millennium BP', x = 'Mean annual temperature') +
-#   scale_fill_brewer(palette = 'Spectral', guide = 'none') +
-#       geom_vline(xintercept = as.numeric(bio1_limit), linetype = 2, color = 'red') 
-# 
-# #arch_dens_mat +  arch_dens_lgmr + arch_dens_trace + arch_dens_trace2 + plot_layout(axes = 'collect')  + plot_annotation(tag_levels = 'A') 
-# #+ arch_dens_base 
-
-```
-
-```{r}
-#arch_dens_mat + arch_dens_base 
-
-#arch_dens_base_2 + arch_dens_erb + arch_dens_base_lgmr + plot_layout(axes = 'collect')
-
-```
+## Data S3. (separate file)
+`preprocessing.qmd` -- A quarto notebook containing the R code to reproduce computationally intensive data import and preprocessing steps outlined in the Materials and Methods. 

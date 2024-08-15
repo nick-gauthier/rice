@@ -113,131 +113,6 @@ list(chelsa_1km,
      chelsa_5km_asia, 
      chelsa_10km_asia) %>%
   map(minmax, compute = TRUE)
-
-# this is after not cropping to bbox world
-mask_agg <- aggregate(chelsa_mask, fact = 10, cores = available_cores, na.rm = TRUE)
-plot(mask_agg)
-
-mask(chelsa_10km, mask_agg) |>
-  as_tibble() |>
-  ggplot(aes(bio1, bio12)) +
-  stat_density_2d(geom = 'polygon', aes(alpha = after_stat(level))) +
-  scale_alpha_continuous(guide = 'none') +
-  geom_vline(xintercept = 28, color = 'red', linetype = 2)
-```
-
-```{r}
-plot(mask((chelsa_10km[[1]] > 28) & (chelsa_10km[[4]] > 500), mask_agg))
-monfreda_occ |>
-   ggplot(aes(bio1, bio12)) +
-  stat_density_2d(geom = 'polygon', aes(alpha = after_stat(level))) +
-  scale_alpha_continuous(guide = 'none') +
-  geom_vline(xintercept = 28.6, color = 'red', linetype = 2)
-```
-
-```{r}
-mask(chelsa_10km, mask_agg) |>
-  as_tibble() |>
-  ggplot(aes(bio1, bio12)) +
-  stat_density_2d(geom = 'polygon', aes(alpha = after_stat(level))) +
-    stat_density_2d(data = monfreda_occ, fill = 'red', geom = 'polygon', aes(alpha = after_stat(level))) +
-  scale_alpha_continuous(guide = 'none') +
-  geom_vline(xintercept = 28, color = 'red', linetype = 2)+
-    geom_hline(yintercept = 1303, color = 'red', linetype = 2)
-
-
-mask(chelsa_10km, mask_agg) |>
-  as_tibble() |>
-  ggplot(aes(bio10, bio12)) +
-  stat_density_2d(geom = 'polygon', aes(alpha = after_stat(level))) +
-    stat_density_2d(data = monfreda_occ, fill = 'red', geom = 'polygon', aes(alpha = after_stat(level))) +
-  scale_alpha_continuous(guide = 'none') +
-  geom_vline(xintercept = 32.7, color = 'red', linetype = 2)+
-    geom_hline(yintercept = 1303, color = 'red', linetype = 2)
-
-mask(chelsa_10km, mask_agg) |>
-  as_tibble() |>
-  ggplot(aes(bio5, bio12)) +
-  stat_density_2d(geom = 'polygon', aes(alpha = after_stat(level))) +
-    stat_density_2d(data = monfreda_occ, fill = 'red', geom = 'polygon', aes(alpha = after_stat(level))) +
-  scale_alpha_continuous(guide = 'none') +
-  geom_vline(xintercept = 40.4, color = 'red', linetype = 2) +
-    geom_hline(yintercept = 1303, color = 'red', linetype = 2)
-```
-
-```{r}
-mask(chelsa_10km, mask_agg) |>
-  as_tibble() |>
-  ggplot(aes(bio1, bio12)) +
-  stat_density_2d(alpha = .5) +
-    stat_density_2d(data = monfreda_occ, color = 'red', alpha = .5) +
-  geom_vline(xintercept = 28.2, color = 'black', linetype = 2) +
-    geom_hline(yintercept = 1303, color = 'black', linetype = 2)
-```
-
-```{r}
-
-mask(chelsa_10km, mask_agg) |>
-  as_tibble() |>
-  ggplot(aes(bio10, bio12)) +
-  stat_density_2d(geom = 'polygon', aes(alpha = after_stat(level))) +
-  scale_alpha_continuous(guide = 'none') +
-  geom_vline(xintercept = 32.7, color = 'red', linetype = 2)
-```
-
-```{r}
-mon_test <- monfreda_fraction %>%
-  rast() %>%
-  clamp(lower = 0.05, values = FALSE) 
-plot(mon_test)
-plot(mask(crop((chelsa_10km[[3]] > 32.7), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)) |> crop(bbox))
-test_map <- mask(crop((chelsa_10km[[3]] > 32.7), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)) |> crop(bbox)
-test_map2 <- mask(crop((chelsa_10km[[1]] > 28.2), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)) |> crop(bbox)
-test_map3 <- mask(crop((chelsa_10km[[2]] > 40.4), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)) |> crop(bbox)
-
-test_map4 <- mask(crop((chelsa_10km[[3]] > 32.7), mon_test) & is.na(mon_test), crop(mask_agg, mon_test)) |> crop(bbox)
-test_map5 <- mask(crop((chelsa_10km[[1]] > 28.2), mon_test) & is.na(mon_test), crop(mask_agg, mon_test)) |> crop(bbox)
-test_map6 <- mask(crop((chelsa_10km[[2]] > 40.4), mon_test) & is.na(mon_test), crop(mask_agg, mon_test)) |> crop(bbox)
-library(mapview)
-
-ggplot() +
-  geom_stars(data = st_as_stars(test_map)) +
-    geom_sf(data = countries, color = 'white', fill = NA)
-ggplot() +
-  geom_stars(data = st_as_stars(test_map2)) +
-    geom_sf(data = countries, color = 'white', fill = NA)
-ggplot() +
-  geom_stars(data = st_as_stars(test_map3)) +
-    geom_sf(data = countries, color = 'white', fill = NA)
-ggplot() +
-  geom_stars(data = st_as_stars(test_map4)) +
-    geom_sf(data = countries, color = 'white', fill = NA)
-ggplot() +
-  geom_stars(data = st_as_stars(test_map5)) +
-    geom_sf(data = countries, color = 'white', fill = NA)
-ggplot() +
-  geom_stars(data = st_as_stars(test_map6)) +
-    geom_sf(data = countries, color = 'white', fill = NA)
-
-
-
-ggplot() +
-  geom_stars(data = st_as_stars( mask(crop((chelsa_10km[[3]] > 32.7), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)))) +
-    geom_sf(data = countries, color = 'white', fill = NA)
-
-
-ggplot() +
-  geom_stars(data = st_as_stars( mask(crop((chelsa_10km[[1]] > 28.2), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)))) +
-    geom_sf(data = countries, color = 'white', fill = NA)
-
-ggplot() +
-  geom_stars(data = st_as_stars( mask(crop((chelsa_10km[[1]] > 28.2), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)))) +
-    geom_sf(data = countries, color = 'white', fill = NA)
-
-ggplot() +
-  geom_stars(data = st_as_stars( mask(crop((chelsa_10km[[2]] > 40.4), mon_test) & !is.na(mon_test), crop(mask_agg, mon_test)))) +
-    geom_sf(data = countries, color = 'white', fill = NA)
-
 ```
 
 ### Paleoclimate reconstructions
@@ -330,35 +205,6 @@ plot(erb_rast[,,,1:10])
 plot(lgmr_rast[,,,1:10])
 ```
 
-```{r}
-# erb_area_total <- st_area(erb_rast) |>
-#   pull(area) |> 
-#   sum()
-# 
-# (erb_rast * st_area(erb_rast)) |>
-#   st_apply(3, sum)  |>
-#   as_tibble() |>
-#   mutate(across(-ages, ~units::drop_units(.x / erb_area_total)),
-#          time = ages / 1000) |>
-#   select(-ages) |>
-#   write_rds('data/data-derived/erb_ts.rds')
-```
-
-```{r}
-
-
-#this compares with and without weighting
-# lgmr_ens |>
-#   ggplot() +
-#   geom_line(aes(x = time, y = sat - 20.23)) +
-#   geom_ribbon(aes(x = time, ymin = sat_low - 20.23, ymax = sat_high - 20.23), alpha = 0.1) +
-#  geom_line(data = lgmr_anom_ts,  aes(time / 1000, anom), color = 'red') +
-#    geom_ribbon(data = lgmr_anom_ts, aes(x = time / 1000, ymin = anom_lower, ymax = anom_upper), alpha = 0.1, fill = 'red') +
-#   geom_line(data = erb_ts, aes(x = ages/1000, y = mean)) +
-#   geom_ribbon(data = erb_ts, aes(x = ages / 1000, ymin = sat_low, ymax = sat_high ), alpha = 0.1) #+
-   # geom_line(data = trace_ts, aes(x = time, y = bio1 - 19.737), color = 'green')
- 
-```
 ### Future climate projections
 
 Future climate model ensembles were derived from phase six of the Coupled Model Intercomparison Project (CMIP6) [@eyring2016], using the subset of bias-corrected models and scenarios used in phase 3b of the Inter-Sectoral Impact Model Intercomparison Project (ISIMIP) [@lange2019], bilinearly interpolated to the CHELSA V2.1 basemap using the delta change approach [@brun, @brun2022].
@@ -879,27 +725,6 @@ rm(long_filter, japan_arch, long, gb2018, rad)
 
 arch_dat |>
   filter(site == 'Baligang')
-
-he <- read_csv('~/Dropbox (UFL)/he_s1table1_mixed_farming_sites.csv') |>
-  st_as_sf(coords = c('Longitude (E)', 'Latitude (N)'), crs = 4326)
-
-he2 <- read_excel('~/Downloads/Supplementary data/Supplementary data 2.xlsx') |>
-  filter(`Material dated` == 'Rice',
-         !is.na(`Longitude(E)`),
-         is.na(`Accepted/rejected`)) |>
-  st_as_sf(coords = c('Longitude(E)', 'Latitude(N)'), crs = 4326)
-
-read_sf('~/Downloads/A dataset of archaeobotanical macroremains (staple crops) during the Neolithic and Bronze Ages in northern China V1.0.kml') |>
-  plot()
-
-he3 <- read_excel('~/Downloads/A dataset of archaeobotanical macroremains (staple crops) during the Neolithic and Bronze Ages in northern China V1.0.xlsx', skip = 1) |>
-  filter(`Oryza sativa...17` > 0) |>
-    st_as_sf(coords = c('Longitude (E)', 'Latitude (N)'), crs = 4326)
-
-arch_dat
-library(mapview)
-mapview(arch_dat) + mapview(he, col.regions = 'red', cex = 5) + mapview(he2, col.regions = 'green', cex = 3)  + mapview(he3, col.regions = 'orange', cex = 2)
-plot(he)
 ```
 
 After data harmonization---which involved eliminating potential outliers, rectifying misclassifications, and removing duplicated site data---we were left with a comprehensive dataset of `r nrow(arch_dat)` dates from `r length(unique(arch_dat$site))` archaeological sites. These datasets comprise a mixture of direct radiocarbon dates on rice remains, alongside median dates from associated contextual materials and ranges anchored in prevailing archaeological eras. We employed the Intcal20 calibration curve for recalibrating all radiocarbon dates, barring a single site in the southern hemisphere where we utilized SHcal20.

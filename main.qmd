@@ -1,9 +1,10 @@
 ---
 title: "Projected warming will exceed the long-term thermal limits of rice cultivation"
 format: 
-  science-pdf: 
-    journal: "scicite"
+  nature-pdf: #science-pdf: 
+    journal: "sn-mathphys-num"#"scicite"
     keep-tex: true
+    toc: false
 header-includes:
     #- \usepackage{setspace}
     #- \doublespacing
@@ -101,17 +102,9 @@ arch_trace_dat <- readRDS(here('data/data-derived/arch_trace.rds')) |>
   mutate(mil = as.factor(mil)) 
 
 load(here('data/data-derived/occurrence_data.RData'))
-
-#auto_set_format <- function() {
-#  if (knitr::is_latex_output()) {
-#    options(knitr.table.format = 'latex')
-#  } else {
-#    options(knitr.table.format = 'html')
-#  }
-#}
-
-#auto_set_format()
 ```
+
+{{< pagebreak >}}
 
 # Introduction
 
@@ -200,7 +193,7 @@ Contemporary rice extents fall within a relatively restricted thermal range. We 
 #| label: fig-kde-modern
 #| fig-height: 7
 #| fig-width: 6
-#| fig-cap: "Kernel density estimates of temperature distributions over rice growing landscapes in Asia. A) One-dimensional kernel density estimates of mean annual temperature and mean maximum daily temperature of the warmest month in grid cells with lowland rice crops, based on data from the International Rice Research Institute (Figure 1). Vertical black lines indicate the 95% central range of the temperature values, and transparent black points indicate the raw occurrence data used in the calculation of the kernel density estimates. B) Two dimensional kernel density estimates for the same variables as in A."
+#| fig-cap: "Kernel density estimates of temperature distributions over rice growing landscapes in Asia. A) One-dimensional kernel density estimates of mean annual temperature and mean maximum daily temperature of the warmest month in grid cells with lowland rice crops, based on data from the International Rice Research Institute (fig. 1). Vertical black lines indicate the 95% central range of the temperature values, and transparent black points indicate the raw occurrence data used in the calculation of the kernel density estimates. B) Two dimensional kernel density estimates for the same variables as in A."
 
 a <- fig2_dat %>%
   pivot_longer(bio1:bio10, names_to = 'var') %>%
@@ -252,7 +245,7 @@ Between roughly 5000-4000 BP, rice spread both north- and eastward in China [@la
 #| fig-width: 9
 #| fig-height: 8
 #| cache: true
-#| fig-cap: Archaeological remains of rice and corresponding temperature distributions throughout the Holocene. A.) Archaeological records of rice distribution over time. See Methods for archaeological data sources. Time units are thousands of years before present (1950 CE). B.) Kernel density estimates of the thermal niche by millennium, with raw data points indicated in black and contemporary rice thermal limits in red. Rice occurrence data were derived from sources listed in the Methods. Temperature data are derived from CHELSA-TraCE21k V1.0 (Karger et al. 2023). 
+#| fig-cap: Archaeological remains of rice and corresponding temperature distributions throughout the Holocene. A.) Archaeological records of rice distribution over time. See Materials and Methods for archaeological data sources. Time units are thousands of years before present (1950 CE). B.) Kernel density estimates of the thermal distribution by millennium, with raw data points indicated in black and contemporary rice thermal limits in red. Rice occurrence data were derived from sources listed in the Materials and Methods. Temperature data are derived from CHELSA-TraCE21k V1.0 (Karger et al. 2023). 
 
 arch_map <- arch_trace_dat %>%
   ggplot() +
@@ -448,7 +441,7 @@ There is a clear upper limit of mean annual temperature over `r round(bio1_limit
 
 Shifting rice production north to regions currently too cold to grow rice will be insufficient to buffer these projected impacts. Beyond the potential for unanticipated social and environmental impacts [@hannah2020], this response does nothing for the billions of people who live in these hotter regions whose lives and livelihoods are directly threatened. This response would also ignore that rice cultivation requires extensive niche construction through the construction of paddies and that abiotic factors such as sufficient water for irrigation and soils which can accommodate paddy rice. Indeed many areas where rice is currently cultivated are already at the limit of these secondary agronomic adaptations [@mahaut2022]. Ethnographic work has shown that in Southeast Asia and China rice paddy soils have been formed over thousands of years of continuous farming which has increased their fertility [@netting1993]. Such long-term processes of niche construction cannot be easily replaced.
 
-Shifts in planting dates to winter may provide solutions in some regions, but higher temperatures are still a concern as rice is also sensitive to warmer nighttime temperatures in the early growing period [@peng2004]. While breeding for various traits that improve resistance to heat stress, such as early flowering, offers some promise [@ren2023], large-scale socio-cultural adaptations to new crop varieties imply significant downstream impacts on regional cultures and economies that can be difficult to anticipate and mitigate ahead of time. Additionally, tropical varieties of *O. japonica* will likely need to shift northwards to higher latitudes, yet these varieties are highly sensitive to day length, and the development of non-photosensitive temperate *O. japonica* may have taken thousands of years. A major breeding objective for the coming decades will thus not only be to develop non-photosensitive varieties of tropical rice, but also matching cultivation strategies [@wang2022].
+Shifts in planting dates to winter may provide solutions in some regions, but higher temperatures are still a concern as rice is also sensitive to warmer nighttime temperatures in the early growing period [@peng2004]. While breeding for various traits that improve resistance to heat stress, such as early flowering, offers some promise [@ren2023], large-scale socio-cultural adaptations to new crop varieties imply significant downstream impacts on regional cultures and economies that can be difficult to anticipate and mitigate ahead of time. Additionally, tropical varieties of *O. japonica* will likely need to shift northwards to higher latitudes, yet these varieties are highly sensitive to day length, and the development of non-photosensitive temperate *O. japonica* may have taken thousands of years. A major breeding objective for the coming decades will thus not only be to develop non-photosensitive varieties of tropical rice, but also matching cultivation strategies [@wang2022].
 
 The stored germplasm of landraces will thus serve as important genetic resources to breed climate-adaptive loci into high-yielding commercial rice varieties [@nomura2021; @vasconcelos2013; @mcnally2023]. Compared to modern cultivars, landraces contain higher genetic diversity [@hour2020; @thomson2007] and adaptations to a wider range of climates [@vasconcelos2013]. Maladaptation of rice landraces under future climates may thus be amplified in modern cultivars. Although there is some degree of noise in the estimation of genomic offset statistics, they remain powerful predictors of maladaptation in projected climates [@gain2023]. A warming climate also threatens wild relatives of rice and the genetic resources they contain, which are currently largely limited to South and Southeast Asia and cannot disperse as quickly without human intervention [@cang2016].
 
@@ -489,7 +482,7 @@ Corresponding author: nicolas.gauthier\@ufl.edu
 
 -   Tables S1 and S2
 
-**Other Supplementary Materials for is manuscript include the following:**
+**Other Supplementary Materials for this manuscript include the following:**
 
 -   Data S1 to S3
 
@@ -527,68 +520,76 @@ We used the genetic.offset function of the R package LEA [@gain2021] to calculat
 
 To make predictions about where the climate is likely to be optimal for rice-growing in the future, we sampled 10,000 grids from across Asia and calculated genomic offset scores for each individual in the environment of each grid, for the three SSP scenarios. We interpret the grid with the lowest offset score as a possible future optimal location for each rice individual. As a measure of the extent of movement that would be required for adaptation, we subtract the absolute value of the current latitude of each rice individual from the absolute value of the centroid latitude of the optimal grid; positive values of this absolute latitudinal distance indicate movement away from the equator.
 
+
+```{r, include=FALSE}
+knitr::knit_exit()
+```
+
 {{< pagebreak >}}
 
 ## Fig. S1.
 
-{{< embed supplementary_figures.qmd#fig-bootstrap >}}
+{{< embed supplementary_materials.qmd#fig-bootstrap >}}
 
 ## Fig. S2.
 
-{{< embed supplementary_figures.qmd#fig-recon-timeseries >}}
+{{< embed supplementary_materials.qmd#fig-recon-timeseries >}}
 
 {{< pagebreak >}}
 
 ## Fig. S3.
 
-{{< embed supplementary_figures.qmd#fig-kde-lgmr >}}
+{{< embed supplementary_materials.qmd#fig-kde-lgmr >}}
 
 {{< pagebreak >}}
 
 ## Fig. S4.
 
-{{< embed supplementary_figures.qmd#fig-country-summaries >}}
+{{< embed supplementary_materials.qmd#fig-country-summaries >}}
 
 {{< pagebreak >}}
 
 ## Fig. S5.
 
-{{< embed supplementary_figures.qmd#fig-niche-all-models-bio1 >}}
+{{< embed supplementary_materials.qmd#fig-niche-all-models-bio1 >}}
 
 {{< pagebreak >}}
 
 ## Fig. S6.
 
-{{< embed supplementary_figures.qmd#fig-niche-all-models-bio10 >}}
+{{< embed supplementary_materials.qmd#fig-niche-all-models-bio10 >}}
 
 {{< pagebreak >}}
 
 ## Fig. S7.
 
-{{< embed supplementary_figures.qmd#fig-niche-all-models-bio5 >}}
+{{< embed supplementary_materials.qmd#fig-niche-all-models-bio5 >}}
 
 {{< pagebreak >}}
 
 ## Fig. S8.
 
-{{< embed supplementary_figures.qmd#fig-displacement >}}
+{{< embed supplementary_materials.qmd#fig-displacement >}}
 
 {{< pagebreak >}}
 
 ## Table S1.
 
-{{< embed supplementary_figures.qmd#tbl-quantiles >}}
+{{< embed supplementary_materials.qmd#tbl-quantiles >}}
 
 {{< pagebreak >}}
 
 ## Table S2.
 
-{{< embed supplementary_figures.qmd#tbl-country-summaries-table >}}
+{{< embed supplementary_materials.qmd#tbl-country-summaries-table >}}
 
 {{< pagebreak >}}
 
 ## Data S1. (separate file)
+`main.qmd` -- A quarto notebook containing the R code sufficient to reproduce the figures in the main analysis.
 
 ## Data S2. (separate file)
+`supplementary_materials.qmd` -- A quarto notebook containing the R code sufficient to reproduce the supplementary figures and tables.
 
 ## Data S3. (separate file)
+`preprocessing.qmd` -- A quarto notebook containing the R code to reproduce computationally intensive data import and preprocessing steps outlined in the Materials and Methods. 
