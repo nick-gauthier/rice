@@ -209,9 +209,10 @@ a <- fig2_dat %>%
                       scale = 1, 
                       jittered_points = TRUE, 
                       position = 'raincloud', 
-                      point_alpha = 0.01, 
-                      point_size = 0.1, 
+                      point_alpha = 0.02, 
+                      point_size = 0.5, 
                       quantile_lines = TRUE, 
+                      vline_size = .8,
                       quantiles = c(0.025, 0.975))+
   labs(x = 'Temperature', y = '') +
   theme(axis.text.y = element_text(vjust = 0)) +
