@@ -89,8 +89,54 @@ cmip6 <-  model_names %>%
   .[countries]
 ```
 
-
 ## Fig. S1.
+
+```{r}
+#| label: fig-current-limits
+#| fig-width: 6
+#| fig-height: 7
+#| fig-cap: "Present day geographic distribution of temperature thresholds in CHELSA V2.1 data. A) Mean annual temperature greater than 28.2°C. B) Mean maximum temperature of the warmest month greater than 40.4°C. C) Mean maximum temperature of the warmest quarter greater than 32.7°C."
+
+chelsa2 <- c('CHELSA_bio1_1981-2010_V.2.1.tif', 
+            'CHELSA_bio5_1981-2010_V.2.1.tif', 
+            'CHELSA_bio10_1981-2010_V.2.1.tif') %>%
+  here('data/data-raw', .) |>
+  read_stars(proxy = TRUE) |>
+  st_crop(st_bbox(coasts_world))
+
+current_limits_1 <- ggplot() +
+  geom_stars(data = chelsa2[1] >= units::drop_units(bio1_limit), downsample =  5) +
+  scale_fill_manual(values = c('#fee8c8', '#e34a33'), 
+                    name = paste0('MAT > ', bio1_limit), 
+                    na.value = NA, na.translate = FALSE) +
+  geom_sf(data = coasts_world) +
+  labs(x = '', y = '') +
+  coord_sf(expand = FALSE)
+
+current_limits_5 <- ggplot() +
+  geom_stars(data = chelsa2[2] >= units::drop_units(bio5_limit), downsample =  5) +
+  scale_fill_manual(values = c('#fee8c8', '#e34a33'), 
+                    name = paste0('TMAX > ', bio5_limit), 
+                    na.value = NA, na.translate = FALSE) +
+  geom_sf(data = coasts_world) +
+  labs(x = '', y = '') +
+  coord_sf(expand = FALSE)
+
+current_limits_10 <- ggplot() +
+  geom_stars(data = chelsa2[3] >= units::drop_units(bio10_limit), downsample =  5) +
+    scale_fill_manual(values = c('#fee8c8', '#e34a33'), 
+                       name = paste0('TWARM > ', bio10_limit),
+                    na.value = NA, na.translate = FALSE) +
+  geom_sf(data = coasts_world) +
+  labs(x = '', y = '') +
+  coord_sf(expand = FALSE)
+
+current_limits_1 / current_limits_5 / current_limits_10 + plot_annotation(tag_levels = 'A', tag_suffix = ')') 
+```
+
+{{< pagebreak >}}
+
+## Fig. S2.
 
 ```{r}
 #| label: fig-bootstrap
@@ -138,7 +184,7 @@ boot_1 + boot_2 +  plot_annotation(tag_levels = 'A')
 
 {{< pagebreak >}}
 
-## Fig. S2.
+## Fig. S3.
 
 ```{r}
 #| label: fig-recon-timeseries
@@ -221,9 +267,10 @@ b <- ggplot(data = lgmr_anom_ts, aes(x = time)) +
 
 b + a + plot_layout(guides = 'collect', axes = 'collect') + plot_annotation(tag_levels = 'A', tag_suffix = ')')
 ```
+
 {{< pagebreak >}}
 
-## Fig. S3.
+## Fig. S4.
 
 ```{r}
 #| label: fig-kde-lgmr
@@ -260,7 +307,7 @@ arch_dens_mat <- arch_trace_dat %>%
   labs(y = 'Millennium BP', x = 'Mean annual temperature') +
   geom_vline(xintercept = as.numeric(bio1_limit), linetype = 2, color = 'red') +
   scale_fill_brewer(palette = 'Spectral', guide = 'none') +
-    scale_x_continuous(limits = c(0, 32))
+  scale_x_continuous(limits = c(0, 32))
 
 arch_dens_lgmr <- lgmr_extract_test %>%
   ggplot(aes(sat, mil)) +
@@ -273,9 +320,9 @@ arch_dens_lgmr <- lgmr_extract_test %>%
                       point_alpha = 0.25, 
                       point_size = 0.5) +
   labs(y = 'Millennium BP', x = 'Mean annual temperature') +
-    geom_vline(xintercept = as.numeric(bio1_limit), linetype = 2, color = 'red') +
+  geom_vline(xintercept = as.numeric(bio1_limit), linetype = 2, color = 'red') +
   scale_fill_brewer(palette = 'Spectral', guide = 'none') +
-    scale_x_continuous(limits = c(0, 32))
+  scale_x_continuous(limits = c(0, 32))
 
 # the difference between Chelsa-trace and LGMR ensemble mean at each point in time/space
 arch_dens_diff <- lgmr_extract_test %>%
@@ -289,7 +336,7 @@ arch_dens_diff <- lgmr_extract_test %>%
                       point_alpha = 0.25, 
                       point_size = 0.5) +
   labs(y = 'Millennium BP', x = 'Difference (C)') +
-   geom_vline(xintercept = 0, linetype = 2, color = 'red') +
+  geom_vline(xintercept = 0, linetype = 2, color = 'red') +
   scale_fill_brewer(palette = 'Spectral', guide = 'none')
 
 # why don't the tags work here?
@@ -298,7 +345,7 @@ arch_dens_diff <- lgmr_extract_test %>%
 
 {{< pagebreak >}}
 
-## Fig. S4.
+## Fig. S5.
 
 ```{r}
 #| label: fig-country-summaries
@@ -316,7 +363,7 @@ country_stats %>%
 
 {{< pagebreak >}}
 
-## Fig. S5.
+## Fig. S6.
 
 ```{r}
 #| label: fig-niche-all-models-bio1
@@ -328,7 +375,7 @@ country_stats %>%
 ggplot() +
   geom_stars(data = slice(cmip6, 'variable', 1) > units::drop_units(bio1_limit), downsample = 20) +
   facet_grid(model~ssp) +
-  scale_fill_manual(values = c('grey', 'red'), 
+  scale_fill_manual(values = c('#fee8c8', '#e34a33'), 
                     name = paste0('MAT > ', bio1_limit), 
                     na.value = NA, na.translate = FALSE) +
   geom_sf(data = coasts) +
@@ -337,7 +384,7 @@ ggplot() +
 
 {{< pagebreak >}}
 
-## Fig. S6.
+## Fig. S7.
 
 ```{r}
 #| label: fig-niche-all-models-bio10
@@ -349,7 +396,7 @@ ggplot() +
 ggplot() +
   geom_stars(data = slice(cmip6, 'variable', 2) > units::drop_units(bio10_limit), downsample = 20) +
   facet_grid(model~ssp) +
-  scale_fill_manual(values = c('grey', 'red'), 
+  scale_fill_manual(values = c('#fee8c8', '#e34a33'), 
                        name = paste0('TWARM > ', bio10_limit),
                     na.value = NA, na.translate = FALSE) +
   geom_sf(data = coasts) +
@@ -358,7 +405,8 @@ ggplot() +
 
 {{< pagebreak >}}
 
-## Fig. S7.
+## Fig. S8.
+
 ```{r}
 #| label: fig-niche-all-models-bio5
 #| cache: true
@@ -369,7 +417,7 @@ ggplot() +
 ggplot() +
   geom_stars(data = slice(cmip6, 'variable', 3) > units::drop_units(bio5_limit), downsample = 20) +
   facet_grid(model~ssp) +
-  scale_fill_manual(values = c('grey', 'red'), 
+  scale_fill_manual(values = c('#fee8c8', '#e34a33'), 
                     name = paste0('TMAX > ', bio5_limit), 
                     na.value = NA, na.translate = FALSE) +
   geom_sf(data = coasts) +
@@ -378,7 +426,7 @@ ggplot() +
 
 {{< pagebreak >}}
 
-## Fig. S8.
+## Fig. S9.
 
 ```{r}
 #| label: fig-displacement
@@ -502,12 +550,14 @@ country_stats %>%
 
 {{< pagebreak >}}
 
-
 ## Data S1. (separate file)
+
 `main.qmd` -- A quarto notebook containing the R code sufficient to reproduce the figures in the main analysis.
 
 ## Data S2. (separate file)
+
 `supplementary_materials.qmd` -- A quarto notebook containing the R code sufficient to reproduce the supplementary figures and tables.
 
 ## Data S3. (separate file)
-`preprocessing.qmd` -- A quarto notebook containing the R code to reproduce computationally intensive data import and preprocessing steps outlined in the Materials and Methods. 
+
+`preprocessing.qmd` -- A quarto notebook containing the R code to reproduce computationally intensive data import and preprocessing steps outlined in the Materials and Methods.
