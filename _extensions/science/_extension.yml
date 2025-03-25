@@ -1,0 +1,18 @@
+title: Science
+author: Nick Gauthier
+version: 1.0.0
+quarto-required: ">=1.4.0"
+contributes:
+  formats:
+    common:
+      toc: true
+      filters:
+        - science.lua
+    pdf:
+      include-in-header: header.tex
+      format-resources:
+        - sciencemag.bst
+        - scicite.sty
+    html:
+      css: styles.css
+

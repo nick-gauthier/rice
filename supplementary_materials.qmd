@@ -1,5 +1,4 @@
 ---
-title: "Supplementary Figures and Tables"
 format: pdf
 editor: visual
 html-table-processing: none
@@ -89,12 +88,14 @@ cmip6 <-  model_names %>%
   .[countries]
 ```
 
+## Supplementary Figures and Tables
+
 ## Fig. S1.
 
 ```{r}
 #| label: fig-current-limits
 #| fig-width: 6
-#| fig-height: 7
+#| fig-height: 5
 #| fig-cap: "Present day geographic distribution of temperature thresholds in CHELSA V2.1 data. A) Mean annual temperature greater than 28.2°C. B) Mean maximum temperature of the warmest month greater than 40.4°C. C) Mean maximum temperature of the warmest quarter greater than 32.7°C."
 
 chelsa2 <- c('CHELSA_bio1_1981-2010_V.2.1.tif', 

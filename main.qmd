@@ -1,8 +1,8 @@
 ---
 title: "Projected warming will exceed the long-term thermal limits of rice cultivation"
 format: 
-  nature-pdf: #science-pdf: 
-    journal: "sn-mathphys-num"#"scicite"
+  science-pdf:
+    journal: "scicite"
     keep-tex: true
     toc: false
 header-includes:
@@ -494,6 +494,8 @@ To make predictions about where the climate is likely to be optimal for rice-gro
 **Funding:** This work was supported by a grant from the Zegar Family Foundation.
 
 **Author contributions:** Conceptualization: NG, JDG. Methodology: NG, OA, MP, JDG. Software: NG, OA. Formal Analysis: NG, OA. Validation: NG, JDG. Data Curation: NG, OA, JDG. Writing---original draft: NG, JDG. Writing---review and editing: NG, OA, MP, JDG. Visualization: NG. Supervision: MP, JDG. Funding Acquisition: MP, JDG.
+
+**AI assistance:** This manuscript was edited using Claude 3.5 Sonnet to improve clarity and concision. All scientific content was produced and verified by the authors.
 
 **Competing interests:** The authors declare that they have no competing interests.
 
