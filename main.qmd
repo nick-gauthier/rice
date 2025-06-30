@@ -1,15 +1,5 @@
 ---
 title: "Projected warming will exceed the long-term thermal limits of rice cultivation"
-format: 
-  science-pdf:
-    journal: "scicite"
-    keep-tex: true
-    toc: false
-header-includes:
-    #- \usepackage{setspace}
-    #- \doublespacing
-    - \usepackage{lineno}
-    - \linenumbers
 author: 
   - name: Nicolas Gauthier
     affiliations:

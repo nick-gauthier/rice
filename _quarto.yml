@@ -1,0 +1,22 @@
+project:
+  type: manuscript
+
+manuscript:
+  article: main.qmd
+  code-links: repo
+
+format:
+  html:
+    comments:
+      hypothesis: true
+  docx: default
+  science-pdf:
+    journal: "scicite"
+    keep-tex: true
+    toc: false
+  #jats: default
+
+
+execute:
+  freeze: true
+

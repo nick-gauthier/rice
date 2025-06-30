@@ -47,3 +47,81 @@ data/data-derived/*
 *.js
 data/*
 /extras
+
+/.quarto/
+/_manuscript
+# Quarto build outputs
+_site/
+_manuscript/
+*.html
+*.pdf
+*.docx
+
+# Quarto cache and temporary files
+*_cache/
+*_files/
+.quarto/
+
+# R specific
+renv/
+renv.lock
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# Python specific
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+.python-version
+requirements.txt.bak
+
+# Jupyter
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# Data files (adjust based on your needs)
+data/raw/
+data/large/
+*.csv
+*.xlsx
+*.zip
+*.gz
+*.tar
+
+# Development and IDE files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# LaTeX build files
+*.aux
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.log
+*.out
+*.toc
+*.synctex.gz
+
+# Backup and temporary files
+*~
+*.bak
+*.swp
+*.tmp
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
