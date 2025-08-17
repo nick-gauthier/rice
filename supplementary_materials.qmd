@@ -358,7 +358,8 @@ country_stats %>%
   facet_wrap(~name) +
   scale_color_manual(values = c('#abdda4', '#fdae61', '#d7191c'
 )) +
-  geom_line(linewidth = 1.2) +
+  geom_line(linewidth = .8) +
+  geom_point() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
