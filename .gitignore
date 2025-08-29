@@ -40,12 +40,10 @@ vignettes/*.pdf
 .DS_Store
 *.tif
 
-data/data-raw/*
-data/data-derived/*
+data/raw/*
 *.css
 *.woff
 *.js
-data/*
 /extras
 
 /.quarto/
@@ -125,3 +123,5 @@ Thumbs.db
 .Trashes
 ehthumbs.db
 Thumbs.db
+/_freeze
+/_freeze
