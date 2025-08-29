@@ -2,6 +2,8 @@
 
 This repository contains the R notebooks used for the analysis presented in the manuscript "Projected Warming Will Exceed the Long-Term Thermal Limits of Rice Cultivation."
 
+[Click here for a fully rendered version of the manuscript.](https://nick-gauthier.github.io/rice/)
+
 ## Repository Structure
 
 ### Main Analysis: `main.qmd`
