@@ -912,6 +912,7 @@ trace_boot <- boot_joined %>%
   st_extract(chelsa_trace, ., time_column = 'time', interpolate_time = TRUE) %>%
   st_drop_geometry() %>%
   bind_cols(st_drop_geometry(boot_joined) %>% select(-time), .) %>%
+  filter(time <= -2000) |>
   remove_missing() # this shouldn't remove anything
 ```
 

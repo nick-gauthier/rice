@@ -573,12 +573,11 @@ trace_boot <- readRDS('data/derived/trace_boot.rds')
 
 # contemporary quantiles for plotting
 quant_dat <- quant_975 |>
-               select(-quantile) |>
-               setNames(c('MAT', 'tmax', 'twarm')) |>
+              select(-quantile) |>
+              setNames(c('MAT', 'tmax', 'twarm')) |>
               pivot_longer(everything())
 
 boot_1 <- trace_boot %>%
-  filter(time <= -2000) %>%
   select(rep, MAT:twarm) %>%
   pivot_longer(MAT:twarm) %>%
   group_by(rep, name) %>%
@@ -590,7 +589,6 @@ ggplot(aes(value, estimate)) +
   labs(x = 'Temperature')
 
 boot_2 <- trace_boot %>%
-  filter(time <= -2000) %>%
   pivot_longer(MAT:twarm, values_to = 'temperature') %>%
   mutate(temperature = units::set_units(temperature, 'degree_c')) %>%
   group_by(rep, name) %>%
