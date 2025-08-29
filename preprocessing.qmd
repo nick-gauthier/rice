@@ -74,7 +74,7 @@ filenames <- c('CHELSA_bio1_1981-2010_V.2.1.tif',
                'CHELSA_pet_penman_mean_1981-2010_V.2.1.tif') # PET used as land mask
 
 walk(filenames, function(x) {
-  target_file <- here('data/data-raw', x)
+  target_file <- here('data/raw', x)
   if (!file.exists(target_file)) {
     download.file(paste0(url_base, x), target_file)
   }
@@ -84,12 +84,12 @@ walk(filenames, function(x) {
 Then read them in using `terra::rast()`.
 
 ```{r load-chelsa}
-chelsa_1km <- here('data/data-raw', filenames[-5]) |>
+chelsa_1km <- here('data/raw', filenames[-5]) |>
   rast() |>
   setNames(c('bio1', 'bio5', 'bio10', 'bio12'))
 
 # get the PET map to use as a land mask on the CHELSA grid
-chelsa_mask <- here('data/data-raw', filenames[5]) |>
+chelsa_mask <- here('data/raw', filenames[5]) |>
   rast() %>%
   crop(bbox_world)
 ```
@@ -126,7 +126,7 @@ list(chelsa_1km,
 Past climate data were derived from the CHELSA-TraCE21k product, a downscaled version of TraCE-21k simulation of the CCSM3 climate model spanning the last 21,000 years, at 100 year intervals [@karger2023, @He2011]. This product uses the older CHELSA V1.2 algorithm, along with a trend-preserving bias correction and topographic correction for shifting ice sheets across the deglacial period.
 
 ```{r}
-trace_order <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01/',#here('data/data-raw/chelsa_trace/bio01'), 
+trace_order <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01/',#here('data/raw/chelsa_trace/bio01'), 
                           full.names = FALSE) %>%
   str_sub(23, -10) %>% 
   as.numeric() %>% 
@@ -135,18 +135,18 @@ trace_order <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01/',#her
 
 
 
-trace_tmp <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01/',#here('data/data-raw/chelsa_trace/bio05'), 
+trace_tmp <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01/',#here('data/raw/chelsa_trace/bio05'), 
                          full.names = TRUE)[trace_order] |>
   rast() |>
   crop(ext(asia_bbox_sf))
 
-trace_tmax <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio05/',#here('data/data-raw/chelsa_trace/bio05'), 
+trace_tmax <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio05/',#here('data/raw/chelsa_trace/bio05'), 
                          full.names = TRUE)[trace_order] |>
   rast() |>
   crop(ext(asia_bbox_sf))
 
 
-trace_twarm <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio10/',#here('data/data-raw/chelsa_trace/bio05'), 
+trace_twarm <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio10/',#here('data/raw/chelsa_trace/bio05'), 
                          full.names = TRUE)[trace_order] |>
   rast() |>
   crop(ext(asia_bbox_sf))
@@ -214,21 +214,21 @@ plot(chelsa_trace[1,,,1], downsample = 200)
 ```{r chelsa-trace}
 # this is not portable nor easily downloadable (the entire dataset is ~300gb). Instead, we save the data extracted at the archaeological site points later on and skip executing this chunk by default
 
-trace_order <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01/',#here('data/data-raw/chelsa_trace/bio01'), 
+trace_order <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01/',#here('data/raw/chelsa_trace/bio01'), 
                           full.names = FALSE) %>%
   str_sub(23, -10) %>% 
   as.numeric() %>% 
   order()
 
-trace_tmp <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01/',#here('data/data-raw/chelsa_trace/bio01'), 
+trace_tmp <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01/',#here('data/raw/chelsa_trace/bio01'), 
                         full.names = TRUE)[trace_order] %>%
   read_stars(along = 'time')
 
-trace_tmax <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio05/',#here('data/data-raw/chelsa_trace/bio05'), 
+trace_tmax <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio05/',#here('data/raw/chelsa_trace/bio05'), 
                          full.names = TRUE)[trace_order] %>%
   read_stars(along = 'time')
 
-trace_twarm <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio10/',#here('data/data-raw/chelsa_trace/bio10'), 
+trace_twarm <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio10/',#here('data/raw/chelsa_trace/bio10'), 
                          full.names = TRUE)[trace_order] %>%
   read_stars(along = 'time') 
 
@@ -256,7 +256,7 @@ chelsa_trace <- c(trace_tmp, trace_tmax, trace_twarm) %>%
 # save the the area-averaged time series as well
 sf_use_s2(FALSE)
 trace_ts <- list('bio01', 'bio05', 'bio10') |>
-  map(~ paste0(here('data/data-raw/chelsa_trace/'), .x) |>
+  map(~ paste0(here('data/raw/chelsa_trace/'), .x) |>
         list.files(full.names = TRUE) %>%
         .[trace_order] |>
         read_stars(along = 'time') |>
@@ -269,7 +269,7 @@ trace_ts <- list('bio01', 'bio05', 'bio10') |>
   as_tibble()
 sf_use_s2(TRUE)
 
-write_rds(trace_ts, here('data/data-derived/trace_ts.rds'))
+write_rds(trace_ts, here('data/derived/trace_ts.rds'))
 https://os.zhdk.cloud.switch.ch/chelsav1/chelsa_trace/bio/CHELSA_TraCE21k_bio01_-100_V1.0.tif
 
 # test of alternative method using vsicurl to stream data w/out download, too slow for most applications though!
@@ -283,8 +283,8 @@ Download, import, and process the LGMR and Erb et al. reconstructions. Save the 
 erb_url <- 'https://zenodo.org/records/6426332/files/holocene_reconstruction.nc'
 lgmr_url <- 'https://www.ncei.noaa.gov/pub/data/paleo/reconstructions/osman2021/LGMR_SAT_climo.nc'
 
-erb_dest <- here('data/data-raw/holocene_reconstruction.nc')
-lgmr_dest <- here('data/data-raw/LGMR_SAT_climo.nc')
+erb_dest <- here('data/raw/holocene_reconstruction.nc')
+lgmr_dest <- here('data/raw/LGMR_SAT_climo.nc')
 
 
 
@@ -309,8 +309,8 @@ lgmr_rast <- read_ncdf(lgmr_dest, eps = .001, proxy = FALSE) |>
   filter(time <= 12000) 
 sf_use_s2(TRUE)
 
-write_rds(erb_rast, here('data/data-derived/erb_rast.rds'))
-write_rds(lgmr_rast, here('data/data-derived/lgmr_rast.rds'))
+write_rds(erb_rast, here('data/derived/erb_rast.rds'))
+write_rds(lgmr_rast, here('data/derived/lgmr_rast.rds'))
 
 plot(erb_rast[,,,1:10])
 plot(lgmr_rast[,,,1:10])
@@ -326,7 +326,7 @@ ssp_names <- c('ssp126', 'ssp370', 'ssp585')
 
 cmip6 <- model_names %>%
   map(paste,  ssp_names, sep = '/' ) %>%
-  map_depth(1, ~here('data/data-raw/chelsa_cmip', .x, 'bio') %>% as.list()) %>% #'~/Dropbox (UFL)/Data/CHELSA/CMIP6/2071-2100/'
+  map_depth(1, ~here('data/raw/chelsa_cmip', .x, 'bio') %>% as.list()) %>% #'~/Dropbox (UFL)/Data/CHELSA/CMIP6/2071-2100/'
   map_depth(2, ~list.files(.x, full.names = TRUE, pattern = '*_bio1_|_bio5_|_bio10_*')) %>%
   map_depth(2, ~read_stars(.x) %>%
               setNames(c('bio1', 'bio10', 'bio5')) %>%
@@ -342,7 +342,7 @@ cmip6 <- model_names %>%
   .[countries] |>
   st_downsample(10) # downsample for plotting
 
-saveRDS(cmip6, here('data/data-derived/cmip6_data.rds'))
+saveRDS(cmip6, here('data/derived/cmip6_data.rds'))
 ```
 
 This dataset can be downloaded from the CHELSA repository but is quite large. For reproducibility we save intermediate versions of this needed for analyses in the main text and supplement.
@@ -428,7 +428,7 @@ df <- left_join(test3, test4) %>%
   ungroup() %>%
   bind_rows(obs_ext)
 
-saveRDS(df, 'data/data-derived/country_stats.rds')
+saveRDS(df, 'data/derived/country_stats.rds')
 ```
 
 ### 
@@ -446,7 +446,7 @@ We extracted the contemporary CHELSA climate data at each set of occurrence poin
 #### GBIF/Herbaria Records
 
 ```{r gbif}
-occ <- here('data/data-raw/Datasets of occurrence records of rice and its wild progenitor.xlsx')
+occ <- here('data/raw/Datasets of occurrence records of rice and its wild progenitor.xlsx')
  
 if (!file.exists(occ)) download.file('https://figshare.com/ndownloader/files/33903758', occ)
 
@@ -475,7 +475,7 @@ ggplot() +
 #### Genbank accessions
 
 ```{r}
-gen_occs_data <- here('data/data-raw/12862_2018_1180_MOESM1_ESM.xls')
+gen_occs_data <- here('data/raw/12862_2018_1180_MOESM1_ESM.xls')
 if (!file.exists(gen_occs_data)) download.file('https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5913815/bin/12862_2018_1180_MOESM1_ESM.xls', gen_occs_data)
 
 gen_occs <- gen_occs_data %>%
@@ -542,7 +542,7 @@ ggplot() +
 ```
 
 ```{r}
-pred_var <- 'data/data-raw/Ramirez-Villegas/Sup_table_3_per_crop/rice (asia).csv' %>%
+pred_var <- 'data/raw/Ramirez-Villegas/Sup_table_3_per_crop/rice (asia).csv' %>%
   read_csv() %>%
   st_as_sf(coords = c('Longitude', 'Latitude'), crs = 4326) %>%
   select(ensemble)
@@ -553,8 +553,8 @@ ggplot(pred_var, aes(color = ensemble)) +
   geom_sf(data = coasts, color = 'black')
 
 #gutaker et al accessions (used for genetic analysis later)
-rice_accessions <- list(indica = 'data/data-raw/indica_accessions.csv',
-                        japonica = 'data/data-raw/japonica_accessions.csv') %>%
+rice_accessions <- list(indica = 'data/raw/indica_accessions.csv',
+                        japonica = 'data/raw/japonica_accessions.csv') %>%
   map(read_csv) %>%
   map(remove_missing) %>% # missing points data in Taiwan
   map_dfr(st_as_sf, coords = c('LON', 'LAT'), crs = 4326, .id = 'type')
@@ -594,7 +594,7 @@ ggplot(occ_dat) +
 Satellite-based estimates of lowland rice extent in Asia from the International Rice Research Institute [@nelson2015]. This dataset employs high-resolution (500m) presence-absence markers from MODIS observations and offers relatively uniform sampling across both temperate and tropical regions. It provides a more objective approach than spatially biased occurrence records. However, its coverage is limited to East and Southeast Asia and it may poorly distinguish intercropped wheat and rice in Northeast China and natural wetlands and paddy rice cultivation in Indonesia. To minimize such sampling issues, we aggregated the 500m data into 5km grid cells, dropping occurrences with less than 20% coverage to minimize false positives from low-pixel observations. Subsequent analyses of these data proved robust to the exact resolution and coverage threshold used.
 
 ```{r fig.width=6, fig.height=5}
-irri <- rast(here('data/data-raw/IRRI Asia Rice Extent Map/asia-rice-extent.tif')) %>%
+irri <- rast(here('data/raw/IRRI Asia Rice Extent Map/asia-rice-extent.tif')) %>%
   aggregate(fact = 10) %>% # from 500m to 5km
   mask(., resample(chelsa_mask, .)) %>%
   setNames('extent')
@@ -637,7 +637,7 @@ fig_4_data <- irri_occ %>%
   ungroup() %>%
   mutate(temperature = set_units(temperature, degree_c))
 
-saveRDS(fig_4_data, here('data/data-derived/fig_4_data.rds'))
+saveRDS(fig_4_data, here('data/derived/fig_4_data.rds'))
 ```
 
 #### Monfreda and Ramankutty
@@ -648,7 +648,7 @@ Estimates of paddy rice harvested areas around the year 2000 [@monfreda2008]. Th
 # this is just "paddy rice" according to documentation
 monfreda_fraction <- geodata::crop_monfreda('rice', 
                                             var = 'area_f', 
-                                            here('data/data-raw')) %>%
+                                            here('data/raw')) %>%
   crop(., resample(chelsa_mask, .), mask = TRUE) %>%
   clamp(upper = 1, values = TRUE) %>% # fraction can be greater than 1 because of multi cropping
   st_as_stars() %>%
@@ -702,7 +702,7 @@ b + (a / c) + plot_layout(guides = 'collect') + plot_annotation(tag_levels = 'A'
 
 ```{r}
 save(irri_occ, monfreda_occ, occ_dat,
-     file = here('data/data-derived/occurrence_data.RData'))
+     file = here('data/derived/occurrence_data.RData'))
 ```
 
 ## Archaeological Data
@@ -710,7 +710,7 @@ save(irri_occ, monfreda_occ, occ_dat,
 We used past rice occurrence data sourced from archaeological sites, as synthesized in @Guedes2018 and @long2022 and primarily derived from version 2 of the Rice Archaeological Database [@silva2015]. We also included observations from @crema2022 to increase data coverage in Japan. These records are typically of botanical remains, believed to represent O. sativa japonica from these archaeological sites, with less intensive sampling of indica varieties from northern India. However, based on their chronology, some occurrences might pertain to the wild-type O. rufipogon or O. nivara.
 
 ```{r}
-gb2018 <- here('data/data-raw/guedesbocinsky2018_crops_across_eurasia.xlsx') %>%
+gb2018 <- here('data/raw/guedesbocinsky2018_crops_across_eurasia.xlsx') %>%
   read_excel() %>%
   filter(is.na(`Exclude?`) & (!is.na(Rice) | !is.na(`Rice (wild)`))) %>% # just rice
   st_as_sf(coords = c('Longitude', 'Latitude'), crs = 4326) %>%
@@ -729,7 +729,7 @@ gb2018 <- here('data/data-raw/guedesbocinsky2018_crops_across_eurasia.xlsx') %>%
         is.na(labcode) | labcode != 'Beta- 378858') %>% # incorrect date per original source and long
   mutate(source = 'gb')
 
-long <- here('data/data-raw/ScienceDirect_files_13Feb2023_15-12-15/1-s2.0-S1040618221005577-mmc2.xlsx') %>%
+long <- here('data/raw/ScienceDirect_files_13Feb2023_15-12-15/1-s2.0-S1040618221005577-mmc2.xlsx') %>%
   read_excel(skip = 11, n_max = 260) %>%
   rename(lon = `Longitude (°E)`,
          lat = `Latitude (°N)`) %>%
@@ -752,7 +752,7 @@ long_filter <- long %>%
   remove_missing() %>%
   filter(duplicated(.))
 
-japan_arch <- read_csv('data/data-raw/sciadv.adc9171_data_s1.csv') %>% # two rows ohave commas, not important
+japan_arch <- read_csv('data/raw/sciadv.adc9171_data_s1.csv') %>% # two rows ohave commas, not important
   filter(USED == 'TRUE') %>% 
   st_as_sf(coords = c('Longitude', 'Laitude'), crs = 4326) %>% # "Laitude"
   rename(site = SiteName_en, labcode = LabCode) |>
@@ -760,7 +760,7 @@ japan_arch <- read_csv('data/data-raw/sciadv.adc9171_data_s1.csv') %>% # two row
 
 not_near <- function(x, y, dist) !st_is_within_distance(x, y, dist)
 
-rad <- read_excel('data/data-raw/Rice_RAD3_OWCAD v0_9977.xlsx') %>%
+rad <- read_excel('data/raw/Rice_RAD3_OWCAD v0_9977.xlsx') %>%
   st_as_sf(coords = c('Longitude', 'Latitude'), crs = 4326) %>%
   filter(Oryza != 'Org') |>
   mutate(age_upper = -1 * (as.numeric(`Finish Date BC/AD`) - 1950), # introduces NA's to some rows without upper/lower dates (which is OK)
@@ -871,14 +871,14 @@ arch_trace <- arch_dat %>%
   remove_missing() # this shouldn't remove anything
 
 arch_trace2 <- arch_trace
-arch_trace <- readRDS(here('data/data-derived/arch_trace.rds'))
+arch_trace <- readRDS(here('data/derived/arch_trace.rds'))
 
 
 arch_trace;arch_trace2
 ```
 
 ```{r}
-saveRDS(arch_trace, here('data/data-derived/arch_trace.rds'))
+saveRDS(arch_trace, here('data/derived/arch_trace.rds'))
 ```
 
 Sample CHELSA at bootstrapped points in space-time.
@@ -892,7 +892,7 @@ trace_boot <- boot_joined %>%
 ```
 
 ```{r}
-saveRDS(trace_boot, 'data/data-derived/trace_boot.rds')
+saveRDS(trace_boot, 'data/derived/trace_boot.rds')
 ```
 
 ### Visualizing Archaeological Bootstraps
@@ -951,7 +951,7 @@ trace_boot %>%
   pivot_longer(MAT:twarm) %>%
   group_by(rep, name) %>%
   tidy_kde() %>%
-  saveRDS(here('data/data-derived/arch_boot_kde.rds'))
+  saveRDS(here('data/derived/arch_boot_kde.rds'))
 
 trace_boot %>%
   filter(time <= -2000) %>%
@@ -959,7 +959,7 @@ trace_boot %>%
   mutate(temperature = set_units(temperature, 'degree_c')) %>%
   group_by(rep, name) %>%
   reframe(value = quantile(temperature, 0.975, type = 8)) %>%
-  saveRDS(here('data/data-derived/arch_boot_quant.rds'))
+  saveRDS(here('data/derived/arch_boot_quant.rds'))
 ```
 
 Grouped by bin.
@@ -1023,8 +1023,8 @@ We used the genetic.offset function of the R package LEA [@gain2021] to calculat
 To make predictions about where the climate is likely to be optimal for rice-growing in the future, we sampled 10,000 grids from across Asia and calculated genomic offset scores for each individual in the environment of each grid, for the three SSP scenarios. We interpret the grid with the lowest offset score as a possible future optimal location for each rice individual. As a measure of the extent of movement that would be required for adaptation, we subtract the absolute value of the current latitude of each rice individual from the absolute value of the centroid latitude of the optimal grid; positive values of this absolute latitudinal distance indicate movement away from the equator.
 
 ```{r}
-rice_accessions <- list(indica = 'data/data-raw/indica_accessions.csv',
-                        japonica = 'data/data-raw/japonica_accessions.csv') %>%
+rice_accessions <- list(indica = 'data/raw/indica_accessions.csv',
+                        japonica = 'data/raw/japonica_accessions.csv') %>%
   map(read_csv) %>%
   map(remove_missing) %>% # missing points data in Taiwan
   map_dfr(st_as_sf, coords = c('LON', 'LAT'), crs = 4326, .id = 'type')
@@ -1041,7 +1041,7 @@ ggplot() +
 gen_mod <- extract(chelsa_1km, rice_accessions, ID = FALSE) %>%
   bind_cols(rice_accessions) %>%
   select(ID, type, bio1:bio10) %>%
-  write_csv(here('data/data-derived/rice_temperatures_present.csv'))
+  write_csv(here('data/derived/rice_temperatures_present.csv'))
 
 gen_future <- cmip6 %>%
    st_extract(rice_accessions) %>%
@@ -1049,7 +1049,7 @@ gen_future <- cmip6 %>%
    bind_cols(map_dfr(1:45, ~rice_accessions)) %>%
    select(ID, type, ssp, model, variable, temperature) %>%
    pivot_wider(names_from = variable, values_from = temperature) %>%
-     write_csv(here('data/data-derived/rice_temperatures_future.csv'))
+     write_csv(here('data/derived/rice_temperatures_future.csv'))
 
 gen_past <- chelsa_trace %>%
   st_extract(rice_accessions) %>%
@@ -1057,7 +1057,7 @@ gen_past <- chelsa_trace %>%
   as_tibble() %>%
   bind_cols(rice_accessions) %>%
   select(ID, type, bio1 = MAT, bio5 = tmax, bio10 = twarm) %>%
-  write_csv(here('data/data-derived/rice_temperatures_past.csv'))
+  write_csv(here('data/derived/rice_temperatures_past.csv'))
 
 bind_rows(gen_past, gen_mod, gen_future, .id = 'time') %>%
   pivot_longer(bio1:bio10) %>%

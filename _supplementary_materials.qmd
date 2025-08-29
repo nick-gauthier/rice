@@ -39,11 +39,11 @@ countries_world <- ne_countries(scale = 'large') %>%
   st_crop(world_bbox_sf)
 sf_use_s2(TRUE)
 
-country_stats <- readRDS('data/data-derived/country_stats.rds') # country level stats
+country_stats <- readRDS('data/derived/country_stats.rds') # country level stats
 
-load(here('data/data-derived/occurrence_data.RData'))
+load(here('data/derived/occurrence_data.RData'))
 
-arch_trace_dat <- readRDS(here('data/data-derived/arch_trace.rds')) |>
+arch_trace_dat <- readRDS(here('data/derived/arch_trace.rds')) |>
   mutate(mil = (med_age - med_age %% 1000) / 1000 + 1) |>
   filter(between(mil, -9, -2)) |> # reduces to 542 unique sites
   mutate(mil = as.factor(mil)) 
@@ -66,7 +66,7 @@ bio1_limit <- quant_975$bio1
 bio5_limit <- quant_975$bio5
 bio10_limit <- quant_975$bio10
 
-cmip6_supp <- readRDS(here('data/data-derived/cmip6_data.rds'))
+cmip6_supp <- readRDS(here('data/derived/cmip6_data.rds'))
 ```
 
 # Supplementary Materials
@@ -99,7 +99,7 @@ Corresponding author: nicolas.gauthier\@ufl.edu
 chelsa2 <- c('CHELSA_bio1_1981-2010_V.2.1.tif', 
             'CHELSA_bio5_1981-2010_V.2.1.tif', 
             'CHELSA_bio10_1981-2010_V.2.1.tif') %>%
-  here('data/data-raw', .) |>
+  here('data/raw', .) |>
   read_stars(proxy = TRUE) |>
   st_crop(st_bbox(coasts_world))
 
@@ -143,7 +143,7 @@ current_limits_1 / current_limits_5 / current_limits_10 + plot_annotation(tag_le
 #| fig-height: 4
 #| fig-unnumbered: true
 #| fig-cap: "A) Bootstrapped kernel density estimates of rice's thermal extent throughout the Holocene. Bootstrap resampling accounts for uncertainty in radiocarbon and phase-based dating of archaeological rice finds. Contemporary temperature thresholds indicated in red. B) Estimated 97.5% quantiles from the bootstrapped dataset. Contemporary quantiles indicated in red."
-trace_boot <- readRDS('data/data-derived/trace_boot.rds')
+trace_boot <- readRDS('data/derived/trace_boot.rds')
 
 # contemporary quantiles for plotting
 quant_dat <- quant_975 |>
@@ -191,7 +191,7 @@ boot_1 + boot_2 +  plot_annotation(tag_levels = 'A')
 #| fig-height: 6
 #| fig-unnumbered: true
 #| fig-cap: "Comparison of Holocene temperature trends over Asia from transient climate models and reconstructions. A) Holocene trends in mean annual temperature, relative to the 3-5ka mean, from Osman et al. 2021 (black, one standard deviation uncertainty in grey), Erb et al. 2022 (blue), and CHELSA-TraCE21k (red). B) Comparison of annual, seasonal, and monthly temperature trends over Asia from CHELSA-TraCE21k."
-trace_ts <- read_rds(here('data/data-derived/trace_ts.rds'))
+trace_ts <- read_rds(here('data/derived/trace_ts.rds'))
 
 a <- trace_ts |>
   pivot_longer(-time) |>
@@ -209,7 +209,7 @@ a <- trace_ts |>
   theme_bw()
 
 # Calculate the area-weighted averaged temperatures and uncertainties from the Erb et al. reconstruction and save the results.
-erb_rast <- read_rds(here('data/data-derived/erb_rast.rds'))
+erb_rast <- read_rds(here('data/derived/erb_rast.rds'))
 
 erb_area_total <- st_area(erb_rast) |>
   pull(area) |> 
@@ -224,7 +224,7 @@ erb_ts <- (erb_rast * st_area(erb_rast)) |>
 
 # Do the same for the LGMR, although this is more complicated as we have to calculate the anomalies by hand for comparison to Erb.
 
-lgmr_rast <- read_rds('data/data-derived/lgmr_rast.rds')
+lgmr_rast <- read_rds('data/derived/lgmr_rast.rds')
 
 lgmr_mean_reference <- lgmr_rast |>
   filter(between(time, 3000, 5000)) |>
@@ -447,8 +447,8 @@ ggplot() +
 #| fig-height: 3
 #| fig-unnumbered: true
 #| fig-cap: "Estimated displacement of the optimal growing location of rice landraces away from the equator, based on genetic offset analysis across three future temperature scenarios. The x-axis indicates the difference between the absolute projected latitude in the future scenario and the absolute latitude today, with positive values indicating a shift in the optimal growing location of a given population away from the equator."
-list(japonica = readRDS(here('data/data-derived/japonica_lat_shift.rds')),
-     indica = readRDS(here('data/data-derived/indica_lat_shift.rds'))) |>
+list(japonica = readRDS(here('data/derived/japonica_lat_shift.rds')),
+     indica = readRDS(here('data/derived/indica_lat_shift.rds'))) |>
   bind_rows(.id = 'landrace') |>
   mutate(ssp = case_when(name == 'diff2.6' ~ 'SSP1-2.6',
                          name == 'diff7.0' ~ 'SSP3-7.0',
