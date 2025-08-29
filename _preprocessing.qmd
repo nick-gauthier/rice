@@ -304,7 +304,7 @@ erb_rast <- read_ncdf(erb_dest, var = 'recon_tas_ens') |>
 
 lgmr_rast <- read_ncdf(lgmr_dest, eps = .001, proxy = FALSE) |>
   st_crop(asia_bbox_sf) |>
-  drop_units() |>
+  units::drop_units() |>
   st_set_dimensions(names = c('x', 'y', 'time')) |>
   filter(time <= 12000) 
 sf_use_s2(TRUE)
@@ -635,7 +635,7 @@ fig_4_data <- irri_occ %>%
   group_by(geometry, variable, ssp) %>%
   summarize(temperature = mean(temperature)) %>%
   ungroup() %>%
-  mutate(temperature = set_units(temperature, degree_c))
+  mutate(temperature = units::set_units(temperature, degree_c))
 
 saveRDS(fig_4_data, here('data/data-derived/fig_4_data.rds'))
 ```
@@ -956,7 +956,7 @@ trace_boot %>%
 trace_boot %>%
   filter(time <= -2000) %>%
   pivot_longer(MAT:twarm, values_to = 'temperature') %>%
-  mutate(temperature = set_units(temperature, 'degree_c')) %>%
+  mutate(temperature = units::set_units(temperature, 'degree_c')) %>%
   group_by(rep, name) %>%
   reframe(value = quantile(temperature, 0.975, type = 8)) %>%
   saveRDS(here('data/data-derived/arch_boot_quant.rds'))

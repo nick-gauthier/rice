@@ -1,11 +1,10 @@
 ---
-format: pdf
+title: Supplementary Material
 editor: visual
-html-table-processing: none
 ---
 
 ```{r}
-#| label: setup
+#| label: setup-supplement
 #| include: false
 knitr::opts_chunk$set(dev = 'png', echo = FALSE, results = TRUE, message = FALSE, warning = FALSE)
 
@@ -67,28 +66,26 @@ bio1_limit <- quant_975$bio1
 bio5_limit <- quant_975$bio5
 bio10_limit <- quant_975$bio10
 
-model_names <- c('gfdl', 'ipsl', 'mpi', 'mri', 'ukesm')
-ssp_names <- c('ssp126', 'ssp370', 'ssp585')
-
-cmip6 <-  model_names %>%
-  map(paste,  ssp_names, sep = '/' ) %>%
-  map_depth(1, ~paste0('~/Dropbox (UFL)/Data/CHELSA/CMIP6/2071-2100/', .x, '/bio') %>% as.list()) %>%
-  map_depth(2, ~list.files(.x, full.names = TRUE, pattern = '*_bio1_|_bio5_|_bio10_*')) %>%
-  map_depth(2, ~read_stars(.x) %>%
-              setNames(c('bio1', 'bio10', 'bio5')) %>%
-              st_redimension()) %>%
-  map(~do.call('c', .x) %>% 
-        setNames(c('SSP1-2.6', 'SSP3-7.0', 'SSP5-8.5')) %>% 
-        st_redimension()) %>%
-  do.call('c', .) %>%
-  setNames(model_names) %>%
-  st_redimension() %>%
-  st_set_dimensions(names = c('x', 'y', 'variable', 'ssp', 'model')) %>%
-  setNames('temperature') %>%
-  .[countries]
+cmip6_supp <- readRDS(here('data/data-derived/cmip6_data.rds'))
 ```
 
-## Supplementary Figures and Tables
+# Supplementary Materials
+
+Supplementary Materials for **Projected warming will exceed the long-term thermal limits of rice cultivation**
+
+Nicolas Gauthier, Ornob Alam, Michael D. Purugganan, Jade d'Alpoim Guedes
+
+Corresponding author: nicolas.gauthier\@ufl.edu
+
+**This PDF file includes:**
+
+-   Figs. S1 to S8
+
+-   Tables S1 and S2
+
+**Other Supplementary Materials for this manuscript include the following:**
+
+-   Data S1 to S3
 
 ## Fig. S1.
 
@@ -96,8 +93,9 @@ cmip6 <-  model_names %>%
 #| label: fig-current-limits
 #| fig-width: 6
 #| fig-height: 5
+#| cache: true
+#| fig-unnumbered: true
 #| fig-cap: "Present day geographic distribution of temperature thresholds in CHELSA V2.1 data. A) Mean annual temperature greater than 28.2°C. B) Mean maximum temperature of the warmest month greater than 40.4°C. C) Mean maximum temperature of the warmest quarter greater than 32.7°C."
-
 chelsa2 <- c('CHELSA_bio1_1981-2010_V.2.1.tif', 
             'CHELSA_bio5_1981-2010_V.2.1.tif', 
             'CHELSA_bio10_1981-2010_V.2.1.tif') %>%
@@ -143,8 +141,8 @@ current_limits_1 / current_limits_5 / current_limits_10 + plot_annotation(tag_le
 #| label: fig-bootstrap
 #| fig-width: 6
 #| fig-height: 4
-#| fig-cap: "A) Bootstrapped kernel density estimates of rice's thermal extent throughout the Holocene. Bootstrap resampling accounts for uncertainty in radiocarbon and phase-based dating of archaeological rice finds. Contemporary temperature tresholds indicated in red. B) Estimated 97.5% quantiles from the bootstrapped dataset. Contemporary quantiles indicated in red."
-
+#| fig-unnumbered: true
+#| fig-cap: "A) Bootstrapped kernel density estimates of rice's thermal extent throughout the Holocene. Bootstrap resampling accounts for uncertainty in radiocarbon and phase-based dating of archaeological rice finds. Contemporary temperature thresholds indicated in red. B) Estimated 97.5% quantiles from the bootstrapped dataset. Contemporary quantiles indicated in red."
 trace_boot <- readRDS('data/data-derived/trace_boot.rds')
 
 # contemporary quantiles for plotting
@@ -191,8 +189,8 @@ boot_1 + boot_2 +  plot_annotation(tag_levels = 'A')
 #| label: fig-recon-timeseries
 #| fig-width: 12
 #| fig-height: 6
+#| fig-unnumbered: true
 #| fig-cap: "Comparison of Holocene temperature trends over Asia from transient climate models and reconstructions. A) Holocene trends in mean annual temperature, relative to the 3-5ka mean, from Osman et al. 2021 (black, one standard deviation uncertainty in grey), Erb et al. 2022 (blue), and CHELSA-TraCE21k (red). B) Comparison of annual, seasonal, and monthly temperature trends over Asia from CHELSA-TraCE21k."
-
 trace_ts <- read_rds(here('data/data-derived/trace_ts.rds'))
 
 a <- trace_ts |>
@@ -277,8 +275,8 @@ b + a + plot_layout(guides = 'collect', axes = 'collect') + plot_annotation(tag_
 #| label: fig-kde-lgmr
 #| fig-width: 10
 #| fig-height: 6
+#| fig-unnumbered: true
 #| fig-cap: "Kernel density estimates of the thermal distribution by millennium across two different temperature datasets, with raw data points indicated in black and contemporary rice thermal limits in red. A) Temperature data are derived from CHELSA-TraCE21k V1.0 (Karger et al. 2023) (same as Figure 3b in main text). B) Temperature data derived from the Last Glacial Maximum Reanalysis (LGMR) dataset (Osman et al. 2022). C) Difference in kernel density estimates of mean annual temperature (MAT) between the CHELSA-TraCE21k and LGMR datasets."
-
 new_lgmr_times <- lgmr_rast |>
   st_get_dimension_values('time') |>
   years() %>%
@@ -325,7 +323,7 @@ arch_dens_lgmr <- lgmr_extract_test %>%
   scale_fill_brewer(palette = 'Spectral', guide = 'none') +
   scale_x_continuous(limits = c(0, 32))
 
-# the difference between Chelsa-trace and LGMR ensemble mean at each point in time/space
+# the difference between Chelsa-TraCE and LGMR ensemble mean at each point in time/space
 arch_dens_diff <- lgmr_extract_test %>%
   ggplot(aes(sat - MAT, mil)) +
   scale_y_discrete(limits = rev) +
@@ -352,6 +350,7 @@ arch_dens_diff <- lgmr_extract_test %>%
 #| label: fig-country-summaries
 #| fig-width: 8
 #| fig-height: 6
+#| fig-unnumbered: true
 #| fig-cap: "Projected increases in land area surpassing key temperature thresholds in each of the top 15 rice-producing countries in east Asia."
 country_stats %>% 
   ggplot(aes(ssp, percent, group = variable, color = variable)) +
@@ -360,7 +359,7 @@ country_stats %>%
 )) +
   geom_line(linewidth = .8) +
   geom_point() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  theme(axis.text.x = element_text(size = 6, angle = 45, hjust = 1))
 ```
 
 {{< pagebreak >}}
@@ -372,16 +371,20 @@ country_stats %>%
 #| cache: true
 #| fig-width: 6
 #| fig-height: 5
+#| fig-unnumbered: true
 #| fig-cap: "Predicted changes in mean annual temperature over currently cultivated rice areas in Asia for multiple CMIP6 ensemble members."
-
 ggplot() +
-  geom_stars(data = slice(cmip6, 'variable', 1) > units::drop_units(bio1_limit), downsample = 20) +
+  geom_stars(data = slice(cmip6_supp, 'variable', 1) > units::drop_units(bio1_limit)) +
   facet_grid(model~ssp) +
   scale_fill_manual(values = c('#fee8c8', '#e34a33'), 
                     name = paste0('MAT > ', bio1_limit), 
                     na.value = NA, na.translate = FALSE) +
   geom_sf(data = coasts) +
-  labs(x = '', y = '')
+  labs(x = '', y = '') +
+  theme(
+    axis.text.x = element_text(size = 5, angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 5)
+  )
 ```
 
 {{< pagebreak >}}
@@ -393,16 +396,20 @@ ggplot() +
 #| cache: true
 #| fig-width: 6
 #| fig-height: 5
+#| fig-unnumbered: true
 #| fig-cap: "Predicted changes in mean maximum temperature of the warmest quarter over currently cultivated rice areas in Asia for multiple CMIP6 ensemble members."
-
 ggplot() +
-  geom_stars(data = slice(cmip6, 'variable', 2) > units::drop_units(bio10_limit), downsample = 20) +
+  geom_stars(data = slice(cmip6_supp, 'variable', 2) > units::drop_units(bio10_limit)) +
   facet_grid(model~ssp) +
   scale_fill_manual(values = c('#fee8c8', '#e34a33'), 
                        name = paste0('TWARM > ', bio10_limit),
                     na.value = NA, na.translate = FALSE) +
   geom_sf(data = coasts) +
-  labs(x = '', y = '')
+  labs(x = '', y = '')+
+  theme(
+    axis.text.x = element_text(size = 5, angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 5)
+  )
 ```
 
 {{< pagebreak >}}
@@ -414,16 +421,20 @@ ggplot() +
 #| cache: true
 #| fig-width: 6
 #| fig-height: 5
+#| fig-unnumbered: true
 #| fig-cap: "Predicted changes in mean maximum temperature of the warmest month over currently cultivated rice areas in Asia for multiple CMIP6 ensemble members."
-
 ggplot() +
-  geom_stars(data = slice(cmip6, 'variable', 3) > units::drop_units(bio5_limit), downsample = 20) +
+  geom_stars(data = slice(cmip6_supp, 'variable', 3) > units::drop_units(bio5_limit)) +
   facet_grid(model~ssp) +
   scale_fill_manual(values = c('#fee8c8', '#e34a33'), 
                     name = paste0('TMAX > ', bio5_limit), 
                     na.value = NA, na.translate = FALSE) +
   geom_sf(data = coasts) +
-  labs(x = '', y = '')
+  labs(x = '', y = '') +
+  theme(
+    axis.text.x = element_text(size = 5, angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 5)
+  )
 ```
 
 {{< pagebreak >}}
@@ -434,8 +445,8 @@ ggplot() +
 #| label: fig-displacement
 #| fig-width: 6
 #| fig-height: 3
+#| fig-unnumbered: true
 #| fig-cap: "Estimated displacement of the optimal growing location of rice landraces away from the equator, based on genetic offset analysis across three future temperature scenarios. The x-axis indicates the difference between the absolute projected latitude in the future scenario and the absolute latitude today, with positive values indicating a shift in the optimal growing location of a given population away from the equator."
-
 list(japonica = readRDS(here('data/data-derived/japonica_lat_shift.rds')),
      indica = readRDS(here('data/data-derived/indica_lat_shift.rds'))) |>
   bind_rows(.id = 'landrace') |>
@@ -456,12 +467,12 @@ ggplot(aes(x = value, fill = ssp)) +
 
 ```{r}
 #| label: tbl-quantiles
-#| tbl-cap: "Present-day rice extent quantiles across three datasets of varying resolution and spatiotemporal support, compared to those calculated from archaeological sites in Asia throughout the Holocene."
-
+#| tbl-cap: "Present-day rice extent quantiles (in °C) across three datasets of varying resolution and spatiotemporal support, compared to those calculated from archaeological sites in Asia throughout the Holocene."
+#| tbl-unnumbered: true
 quants_mod_monfreda <- monfreda_occ %>%
   st_drop_geometry() %>%
   select(bio1, bio5, bio10) %>%
-  mutate(across(everything(), ~units::set_units(.x, 'degree_C'))) %>%
+  mutate(across(everything(), ~set_units(.x, 'degree_C'))) %>%
   reframe(across(everything(), 
                    ~quantile(.x, quantiles, type = 8))) %>%
   round(1) %>%
@@ -470,7 +481,7 @@ quants_mod_monfreda <- monfreda_occ %>%
 quants_mod_gbif <- occ_dat %>%
   st_drop_geometry() %>%
   select(bio1, bio5, bio10) %>%
-  mutate(across(everything(), ~units::set_units(.x, 'degree_C'))) %>%
+  mutate(across(everything(), ~set_units(.x, 'degree_C'))) %>%
   reframe(across(everything(), 
                    ~quantile(.x, quantiles, type = 8))) %>%
   round(1) %>%
@@ -479,24 +490,48 @@ quants_mod_gbif <- occ_dat %>%
 quants_arch <- arch_trace_dat %>%
   st_drop_geometry() %>%
   select(bio1 = MAT, bio5 = tmax, bio10 = twarm) %>%
-  mutate(across(everything(), ~units::set_units(.x, 'degree_C'))) %>%
+  mutate(across(everything(), ~set_units(.x, 'degree_C'))) %>%
   reframe(across(everything(), 
                    ~quantile(.x, quantiles, type = 8))) %>%
   round(1) %>%
   mutate(quantile = quantiles, .before = 1)
 
+
 left_join(quants_mod, quants_mod_monfreda, by = 'quantile') %>%
-  left_join(quants_mod_gbif, by = 'quantile') %>%
-  left_join(quants_arch, by = 'quantile') %>%
-  units::drop_units() %>% # do we want celsius units?
-  mutate(quantile = set_units(quantile * 100, '%')) %>% 
-  select(quantile, bio1.x, bio1.y, bio1.x.x, bio1.y.y, bio5.x, bio5.y, bio5.x.x, bio5.y.y, bio10.x, bio10.y, bio10.x.x, bio10.y.y) %>%
+ left_join(quants_mod_gbif, by = 'quantile') %>%
+ left_join(quants_arch, by = 'quantile') %>%
+ drop_units() %>% # do we want celsius units?
+ mutate(quantile = set_units(quantile * 100, '%')) %>%
+ select(quantile, bio1.x, bio1.y, bio1.x.x, bio1.y.y, bio5.x, bio5.y, bio5.x.x, bio5.y.y, bio10.x, bio10.y, bio10.x.x, bio10.y.y) %>%
   setNames(c('Quantile', rep(c('IRRI', 'Mon.', 'GBIF', 'Arch.'), 3))) %>%
-  knitr::kable() |>
-  kableExtra::add_header_above(tibble(names = c('', 'MAT', 
-                                                'TMAX', 
-                                                'TWARM'), 
-                                      spans = c(1,4,4,4)))  
+  knitr::kable(format = 'html') |>
+  #knitr::kable(format = fmt, booktabs = knitr::is_latex_output(), align = "c") |>
+  kableExtra::add_header_above(tibble(names = c('', 'MAT', 'TMAX', 'TWARM'), spans = c(1,4,4,4)))
+ # kableExtra::kable_styling(full_width = FALSE, latex_options = c("hold_position"))
+
+# df_quant <- left_join(quants_mod, quants_mod_monfreda, by = "quantile") %>%
+#   left_join(quants_mod_gbif, by = "quantile") %>%
+#   left_join(quants_arch,       by = "quantile") %>%
+#   units::drop_units() %>%
+#   mutate(Quantile = paste0(quantile * 100, "%")) %>%  # make it a label
+#   transmute(
+#     Quantile,
+#     MAT_IRRI  = bio1.x,   MAT_Mon  = bio1.y,   MAT_GBIF  = bio1.x.x,   MAT_Arch  = bio1.y.y,
+#     TMAX_IRRI = bio5.x,   TMAX_Mon = bio5.y,   TMAX_GBIF = bio5.x.x,   TMAX_Arch = bio5.y.y,
+#     TWARM_IRRI= bio10.x,  TWARM_Mon= bio10.y,  TWARM_GBIF= bio10.x.x,  TWARM_Arch= bio10.y.y
+#   )
+# 
+# gt(df_quant) %>%
+#   cols_label(
+#     MAT_IRRI = "IRRI",  MAT_Mon = "Mon.",  MAT_GBIF = "GBIF",  MAT_Arch = "Arch.",
+#     TMAX_IRRI= "IRRI",  TMAX_Mon= "Mon.",  TMAX_GBIF= "GBIF",  TMAX_Arch= "Arch.",
+#     TWARM_IRRI="IRRI",  TWARM_Mon="Mon.",  TWARM_GBIF="GBIF",  TWARM_Arch="Arch."
+#   ) %>%
+#   tab_spanner(label = "MAT",   columns = c(MAT_IRRI,  MAT_Mon,  MAT_GBIF,  MAT_Arch)) %>%
+#   tab_spanner(label = "TMAX",  columns = c(TMAX_IRRI, TMAX_Mon, TMAX_GBIF, TMAX_Arch)) %>%
+#   tab_spanner(label = "TWARM", columns = c(TWARM_IRRI,TWARM_Mon,TWARM_GBIF,TWARM_Arch)) %>%
+#   fmt_number(columns = -Quantile, decimals = 1)
+
 ```
 
 {{< pagebreak >}}
@@ -510,7 +545,7 @@ left_join(quants_mod, quants_mod_monfreda, by = 'quantile') %>%
 #|   - "Percent land area surpassing MAT threshold"
 #|   - "Percent land area surpassing TWARM threshold"
 #|   - "Percent land area surpassing TMAX threshold"
-
+#| tbl-unnumbered: true
 # this is total land area??
 # country_stats %>%
 #   filter(variable == 'Mean annual temperature') %>%
@@ -520,34 +555,37 @@ left_join(quants_mod, quants_mod_monfreda, by = 'quantile') %>%
 #   select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
 #   summarise(across(Present:`SSP5-8.5`, ~sum(.x))) %>%
 #   mutate(across(everything(), ~.x / Present))
+#fmt <- if (knitr::is_latex_output()) "latex" else "html"
 
 country_stats %>%
   mutate(percent = round(percent)) %>%
   filter(variable == 'Mean annual temperature') %>%
   select(-sum, -area) %>%
-  pivot_wider(names_from = ssp, 
-              values_from = percent) %>%
+  pivot_wider(names_from = ssp, values_from = percent) %>%
   select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
-  knitr::kable()
-
+  knitr::kable(format = 'pipe')
+ # knitr::kable(format = fmt, booktabs = knitr::is_latex_output(), align = "c") |>
+  #kableExtra::kable_styling(full_width = FALSE, latex_options = c("hold_position"))
 
 country_stats %>%
   mutate(percent = round(percent)) %>%
   filter(variable == 'Max temperature of warmest quarter') %>%
-    select(-sum, -area) %>%
-  pivot_wider(names_from = ssp,
-              values_from = percent) %>%
+  select(-sum, -area) %>%
+  pivot_wider(names_from = ssp, values_from = percent) %>%
   select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
-  knitr::kable()
+  knitr::kable(format = 'pipe')
+  #knitr::kable(format = fmt, booktabs = knitr::is_latex_output(), align = "c") |>
+  #kableExtra::kable_styling(full_width = FALSE, latex_options = c("hold_position"))
 
 country_stats %>%
   mutate(percent = round(percent)) %>%
   filter(variable == 'Max temperature of warmest month') %>%
-    select(-sum, -area) %>%
-  pivot_wider(names_from = ssp,
-              values_from = percent) %>%
+  select(-sum, -area) %>%
+  pivot_wider(names_from = ssp, values_from = percent) %>%
   select(Country = name, Present = present, `SSP1-2.6`:`SSP5-8.5`) %>%
-  knitr::kable()
+  knitr::kable(format = 'pipe')
+ # knitr::kable(format = fmt, booktabs = knitr::is_latex_output(), align = "c") |>
+#  kableExtra::kable_styling(full_width = FALSE, latex_options = c("hold_position"))
 ```
 
 {{< pagebreak >}}
