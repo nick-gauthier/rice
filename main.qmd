@@ -74,16 +74,7 @@ countries_world <- ne_countries(scale = 'large') %>%
   st_crop(world_bbox_sf)
 sf_use_s2(TRUE)
 
-chelsa <- c('CHELSA_bio1_1981-2010_V.2.1.tif', 
-            'CHELSA_bio5_1981-2010_V.2.1.tif', 
-            'CHELSA_bio10_1981-2010_V.2.1.tif') %>%
-  here('data/raw', .) |>
-  read_stars(proxy = TRUE) |>
-  st_crop(asia_bbox_sf) |>
-  setNames(c('Mean annual temperature', 
-             'Mean maximum temperature of the warmest month', 
-             'Mean maximum temperature of the warmest quarter')) |>
-  merge()
+chelsa <- readRDS(here('data/derived/chelsa_asia.rds'))
 
 load(here('data/derived/occurrence_data.RData'))
 
@@ -139,7 +130,7 @@ c <- ggplot(monfreda_occ) +
   coord_sf(expand = FALSE)
 
 d <- ggplot() +
-  geom_stars(data = chelsa[countries_small], downsample = c(20, 20, 0)) +
+  geom_stars(data = chelsa[countries_small]) +
   facet_wrap(~attributes, nrow = 1) +
   scale_fill_viridis_c(option = 'magma', name = '°C', na.value = NA, limits = c(0, NA), oob = scales::squish, labels = function(x) ifelse(x == 0, "<0", x)) +
   geom_sf(data = coasts) +
@@ -538,15 +529,10 @@ Corresponding author: nicolas.gauthier\@ufl.edu
 #| cache: true
 #| fig-unnumbered: true
 #| fig-cap: "Present day geographic distribution of temperature thresholds in CHELSA V2.1 data. A) Mean annual temperature greater than 28.2°C. B) Mean maximum temperature of the warmest month greater than 40.4°C. C) Mean maximum temperature of the warmest quarter greater than 32.7°C."
-chelsa2 <- c('CHELSA_bio1_1981-2010_V.2.1.tif', 
-            'CHELSA_bio5_1981-2010_V.2.1.tif', 
-            'CHELSA_bio10_1981-2010_V.2.1.tif') %>%
-  here('data/raw', .) |>
-  read_stars(proxy = TRUE) |>
-  st_crop(st_bbox(coasts_world))
+chelsa_wrld <- readRDS(here('data/derived/chelsa_world_downsampled.rds'))
 
 current_limits_1 <- ggplot() +
-  geom_stars(data = chelsa2[1] >= units::drop_units(bio1_limit), downsample =  5) +
+  geom_stars(data = chelsa_wrld[1] >= units::drop_units(bio1_limit)) +
   scale_fill_manual(values = c('#fee8c8', '#e34a33'), 
                     name = paste0('MAT > ', bio1_limit), 
                     na.value = NA, na.translate = FALSE) +
@@ -555,7 +541,7 @@ current_limits_1 <- ggplot() +
   coord_sf(expand = FALSE)
 
 current_limits_5 <- ggplot() +
-  geom_stars(data = chelsa2[2] >= units::drop_units(bio5_limit), downsample =  5) +
+  geom_stars(data = chelsa_wrld[2] >= units::drop_units(bio5_limit)) +
   scale_fill_manual(values = c('#fee8c8', '#e34a33'), 
                     name = paste0('TMAX > ', bio5_limit), 
                     na.value = NA, na.translate = FALSE) +
@@ -564,7 +550,7 @@ current_limits_5 <- ggplot() +
   coord_sf(expand = FALSE)
 
 current_limits_10 <- ggplot() +
-  geom_stars(data = chelsa2[3] >= units::drop_units(bio10_limit), downsample =  5) +
+  geom_stars(data = chelsa_wrld[3] >= units::drop_units(bio10_limit)) +
     scale_fill_manual(values = c('#fee8c8', '#e34a33'), 
                        name = paste0('TWARM > ', bio10_limit),
                     na.value = NA, na.translate = FALSE) +

@@ -109,6 +109,30 @@ chelsa_5km_asia <- crop(chelsa_5km, bbox)
 chelsa_10km_asia <- crop(chelsa_10km, bbox)
 ```
 
+Save lightweight versions for main.qmd:
+
+```{r save-lightweight-chelsa}
+# Save cropped and downsampled Asia version for main analysis  
+chelsa_asia_cropped <- here('data/raw', filenames[1:3]) |>
+  read_stars() |>
+  st_crop(asia_bbox_sf) |>
+  st_downsample(c(20, 20, 1)) |>
+  setNames(c('Mean annual temperature', 
+             'Mean maximum temperature of the warmest month', 
+             'Mean maximum temperature of the warmest quarter')) |>
+  merge()
+
+saveRDS(chelsa_asia_cropped, here('data/derived/chelsa_asia.rds'))
+
+# Save downsampled world version for supplementary figures
+chelsa_world_cropped <- here('data/raw', filenames[1:3]) |>
+  read_stars() |>
+  st_crop(st_bbox(coasts_world)) |>
+  st_downsample(5)
+
+saveRDS(chelsa_world_cropped, here('data/derived/chelsa_world_downsampled.rds'))
+```
+
 Check the range of values at different resolutions and extents. The upper temperatures don't appear to be very sensitive to resolution, which is good.
 
 ```{r eval = FALSE}
