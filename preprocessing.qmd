@@ -987,54 +987,6 @@ trace_boot %>%
   saveRDS(here('data/derived/arch_boot_quant.rds'))
 ```
 
-Grouped by bin.
-
-```{r}
-nsim = 1000
-c14_splits_dates <- c14_cleaned %>%
-  select(site, C14Age) %>%
-  mutate(id = 1:n(),
-         cal_grid = cal$grids, .before = geometry) %>%
-  slice(which.CalDates(cal, BP > 2000, p = 0.8)) %>% # focus on earlier sites
-  bootstraps(times = nsim)
-
-phase_splits_dates <- period_sites %>%
-  mutate(id = (1:n()) + nrow(c14_cleaned)) %>%
-  filter(age_lower > 2000) %>% # focus on earlier sites
-  filter(age_upper < age_lower) %>% # one site has wrong dates?
-  select(site, id, age_lower, age_upper) %>%
-  bootstraps(times = nsim)
-
-boot_joined_date <- list(c14 = map_dfr(c14_splits_dates$splits, sampler_c14, .id = 'rep'),
-                    phase = map_dfr(phase_splits_dates$splits, sampler_phase, .id = 'rep')) %>%
-  bind_rows(.id = 'type') %>%
-  mutate(time = time * -1)
-
-trace_boot_date <- boot_joined_date %>%
-  st_extract(chelsa_trace, ., time_column = 'time', interpolate_time = TRUE) %>%
-  st_drop_geometry() %>%
-  bind_cols(st_drop_geometry(boot_joined_date) %>% select(-time), .) %>%
-  remove_missing() # some dates are earlier than trace
-
-trace_boot_date %>%
-  filter(time < -2000)
-arch_kde <- trace_boot_date %>%
-  filter(time <= -2000) %>%
-  select(rep, type, MAT:twarm) %>%
-  pivot_longer(MAT:twarm) %>%
-  group_by(rep, name, type) %>%
-  tidy_kde()
-
-ggplot(test_eks, aes(MAT, estimate)) +
-     geom_line(alpha = 0.01, aes(group = rep)) +
-  geom_line(data = test_eks2, alpha = 0.01, aes(group = rep), color = 'red')
-            
-          
-ggplot(arch_kde, aes(value, estimate)) +
-     geom_line(alpha = 0.01, aes(group = interaction(rep, type), color = type)) +
-  facet_wrap(~name, scales = 'free_y', nrow = 3)
-```
-
 ## Genetic Data
 
 We performed a genetic offset analysis to evaluate the potential maladaptation of Oryza sativa subspecies indica and japonica under projected climate change scenarios. The workflow entailed a gene-environment association analysis focusing on the first principal component of the three temperature variables (MAT, TWARM, TMAX), which explained over 81% of the environmental variance across the locations of both rice subspecies. This analysis corrected for population structure and identified outlier single nucleotide polymorphisms (SNPs) as candidate loci from each linkage group. We leveraged a large dataset of geotagged japonica and indica accessions and biallelic SNPs filtered for quality and imputed for missing genotypes. The genetic offset, indicative of maladaptation to predicted climates, was calculated using these loci. We averaged model predictions across each climate models (UKESM, MRI, IPSL, etc.) in the ensemble for each Shared Socioeconomic Pathway (SSP).
