@@ -526,6 +526,7 @@ ggplot() +
 Thin the two sets of occurrence records to a 1km grid and combine. So let's combine this with the GBIF occurrence above. It definitely helps us sample the temperate varieties better, but its still a minor influence relative to the numbers of gbif points. These are predictions from a classifier that use climate data, so not exactly useful here but interesting to see.
 
 ```{r}
+set.seed(1234) # for reproducible gridSample operations
 rufip_thin <- dismo::gridSample(
   st_coordinates(rufipogon), 
   r = chelsa_mask) %>% 
