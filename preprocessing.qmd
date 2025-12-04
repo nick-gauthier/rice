@@ -618,7 +618,16 @@ ggplot(occ_dat) +
 Satellite-based estimates of lowland rice extent in Asia from the International Rice Research Institute [@nelson2015]. This dataset employs high-resolution (500m) presence-absence markers from MODIS observations and offers relatively uniform sampling across both temperate and tropical regions. It provides a more objective approach than spatially biased occurrence records. However, its coverage is limited to East and Southeast Asia and it may poorly distinguish intercropped wheat and rice in Northeast China and natural wetlands and paddy rice cultivation in Indonesia. To minimize such sampling issues, we aggregated the 500m data into 5km grid cells, dropping occurrences with less than 20% coverage to minimize false positives from low-pixel observations. Subsequent analyses of these data proved robust to the exact resolution and coverage threshold used.
 
 ```{r fig.width=6, fig.height=5}
-irri <- rast(here('data/raw/IRRI Asia Rice Extent Map/asia-rice-extent.tif')) %>%
+# Check if IRRI data exists, provide helpful error if not
+irri_file <- here('data/raw/IRRI Asia Rice Extent Map/asia-rice-extent.tif')
+if (!file.exists(irri_file)) {
+  stop("IRRI rice extent map not found. Please download from:\n",
+       "https://drive.google.com/file/d/0BwTW1oKZU90LTUtqaDQ2XzZpbjg/view?resourcekey=0-cnG60k-2NMgUe7W5hahR5w\n",
+       "and save to: data/raw/IRRI Asia Rice Extent Map/asia-rice-extent.tif\n",
+       "See the 'Manual Download Required' section at the top of this notebook for details.")
+}
+
+irri <- rast(irri_file) %>%
   aggregate(fact = 10) %>% # from 500m to 5km
   mask(., resample(chelsa_mask, .)) %>%
   setNames('extent')
