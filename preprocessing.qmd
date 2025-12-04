@@ -379,9 +379,6 @@ sf_use_s2(TRUE)
 
 write_rds(erb_rast, here('data/derived/erb_rast.rds'))
 write_rds(lgmr_rast, here('data/derived/lgmr_rast.rds'))
-
-plot(erb_rast[,,,1:10])
-plot(lgmr_rast[,,,1:10])
 ```
 
 ### Future climate projections
@@ -946,19 +943,12 @@ boot_joined <- list(c14 = map_dfr(c14_splits$splits, sampler_c14, .id = 'rep'),
 We then extracted temperature variables from the CHELSA-TraCE21k v1.0 dataset at each sampled location in time and space. Finally, we constructed unique kernel density estimates of the temperature distributions at each rice occurrence point for every bootstrap replicate and temperature variable.
 
 ```{r}
-plot(chelsa_trace[1,,,1])
 arch_trace <- arch_dat %>%
   mutate(med_age = years(as.integer(med_age)) + as.Date("1950-01-01")) %>%
   st_extract(chelsa_trace, ., time_column = 'med_age', interpolate_time = FALSE) %>%
   st_drop_geometry() %>%
   bind_cols(select(arch_dat, -c(med_age, age_lower, age_upper)), .) %>%
   remove_missing() # this shouldn't remove anything
-
-arch_trace2 <- arch_trace
-arch_trace <- readRDS(here('data/derived/arch_trace.rds'))
-
-
-arch_trace;arch_trace2
 ```
 
 ```{r}
@@ -1068,7 +1058,7 @@ rice_accessions <- list(indica = 'data/raw/indica_accessions.csv',
 
 
 ggplot() +
-  geom_sf(data = countries_small) +
+  geom_sf(data = countries) +
   geom_sf(data = rice_accessions, aes(color = type))
 ```
 
