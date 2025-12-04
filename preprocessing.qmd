@@ -5,6 +5,21 @@ editor: visual
 bibliography: references_methods.bib
 ---
 
+## Reproducibility Note
+
+This notebook documents the data preprocessing pipeline. The outputs (in `data/derived/`) are included in the repository and used by `main.qmd`.
+
+**To reproduce the main manuscript:** Run `main.qmd` only. All required derived data files are included.
+
+**To re-run preprocessing from scratch requires:**
+
+- \~40 GB: CHELSA-CMIP6 projections
+- \~120 GB: CHELSA-TraCE21k paleoclimate data
+
+See the "Data Requirements" section below for download instructions.
+
+------------------------------------------------------------------------
+
 ```{r setup}
 # analysis packages
 library(stars) # spatio-temporal raster processing
@@ -49,6 +64,96 @@ sf_use_s2(TRUE)
 # parallel processing
 available_cores <- parallel::detectCores(logical = TRUE)
 ```
+
+# Data Requirements & Reproducibility
+
+## Automatically Downloaded Data
+
+The following datasets (\~650 MB total) will be automatically downloaded when you run this notebook:
+
+-   CHELSA V2.1 contemporary climate (1981-2010): bio1, bio5, bio10, bio12, PET
+-   Erb et al. Holocene temperature reconstruction
+-   LGMR (Last Glacial Maximum Reanalysis) paleoclimate data
+-   Rice occurrence records: GBIF/herbarium specimens, genetic accessions
+-   Archaeological rice data: Multiple published datasets
+-   Monfreda et al. global crop extent data
+
+These will be saved to `data/raw/` automatically.
+
+## Manual Download Required
+
+The following datasets must be obtained manually:
+
+### 1. IRRI Rice Extent Map (Required)
+
+-   Reference: Nelson and Gumma (2015)
+-   File: asia-rice-extent.tif (\~500 MB)
+-   Save to: `data/raw/IRRI Asia Rice Extent Map/`
+-   Used for: Main rice extent analysis (Figure 1, Figure 2)
+-   Download URL: https://drive.google.com/file/d/0BwTW1oKZU90LTUtqaDQ2XzZpbjg/view?resourcekey=0-cnG60k-2NMgUe7W5hahR5w
+-   Note: This dataset is difficult to locate. The above Google Drive link (which downloads the entire directory) was found via the Internet Archive and was functional as of November 2025. If the link becomes unavailable, search the Internet Archive for IRRI rice extent data or contact IRRI directly.
+
+### 2. CHELSA-CMIP6 Future Projections (Required for future scenarios)
+
+-   Source: https://chelsa-climate.org/cmip6/
+-   Size: \~40 GB
+-   Models needed: GFDL, IPSL, MPI, MRI, UKESM
+-   Scenarios needed: SSP126, SSP370, SSP585 (years 2071-2100)
+-   Variables needed: bio1, bio5, bio10
+-   Save to: `data/raw/chelsa_cmip/{model}/{scenario}/bio/`
+-   Used for: Future climate projections (Figures 4-5, Supplementary Figures 6-8)
+
+### 3. CHELSA-TraCE21k Paleoclimate (Optional)
+
+-   Source: https://chelsa-climate.org/chelsa-trace21k/
+-   Size: \~120 GB
+-   Variables needed: bio01, bio05, bio10 (all 121 time steps)
+-   Save to: `data/raw/chelsa_trace/bio01/`, `bio05/`, `bio10/`
+-   Used for: Extracting paleoclimate at archaeological sites
+-   Note: Optional if using pre-computed arch_trace.rds from data/derived/
+
+## Minimal Reproduction Option
+
+To reproduce the main manuscript without downloading 160 GB of CHELSA data:
+
+1.  Download required datasets: IRRI rice map + CMIP6 projections (\~40 GB)
+2.  Use pre-computed files from data/derived/:
+    -   arch_trace.rds - Archaeological sites with extracted paleoclimate
+    -   trace_boot.rds - Bootstrapped archaeological samples
+    -   trace_ts.rds - Holocene temperature time series
+3.  Skip or comment out the CHELSA-TraCE21k processing chunks (lines 152-302)
+
+This approach reproduces all figures and analyses except the paleoclimate extraction step (which is already done).
+
+## Expected Directory Structure
+
+```         
+rice/
+├── data/
+│   ├── raw/                          # Input data
+│   │   ├── IRRI Asia Rice Extent Map/
+│   │   │   └── asia-rice-extent.tif  (manual download required)
+│   │   ├── chelsa_cmip/              (manual download required)
+│   │   │   ├── gfdl/ssp126/bio/
+│   │   │   ├── gfdl/ssp370/bio/
+│   │   │   └── ... (5 models x 3 scenarios)
+│   │   ├── chelsa_trace/             (optional, or use arch_trace.rds)
+│   │   │   ├── bio01/ (121 files)
+│   │   │   ├── bio05/ (121 files)
+│   │   │   └── bio10/ (121 files)
+│   │   └── [auto-downloaded files]   (created by this notebook)
+│   └── derived/                      # Outputs (created by this notebook)
+│       ├── README.md
+│       ├── arch_trace.rds            (use this to skip TraCE download)
+│       ├── trace_boot.rds
+│       └── [other processed files]
+```
+
+## Alternative: Streaming CHELSA-TraCE (Experimental)
+
+There is experimental code (lines 212-236) to stream CHELSA-TraCE21k data directly using /vsicurl/ without downloading the full 300 GB. This is slower but avoids the storage requirement. However, it is not yet fully tested for the full workflow.
+
+------------------------------------------------------------------------
 
 # Methods
 
@@ -150,31 +255,31 @@ list(chelsa_1km,
 Past climate data were derived from the CHELSA-TraCE21k product, a downscaled version of TraCE-21k simulation of the CCSM3 climate model spanning the last 21,000 years, at 100 year intervals [@karger2023, @He2011]. This product uses the older CHELSA V1.2 algorithm, along with a trend-preserving bias correction and topographic correction for shifting ice sheets across the deglacial period.
 
 ```{r}
-trace_order <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01/',#here('data/raw/chelsa_trace/bio01'), 
+#| eval: false
+# Load CHELSA-TraCE21k data from local files
+# Requires downloading ~300 GB from https://chelsa-climate.org/chelsa-trace21k/
+# to data/raw/chelsa_trace/bio01/, bio05/, bio10/
+
+trace_order <- list.files(here('data/raw/chelsa_trace/bio01'),
                           full.names = FALSE) %>%
-  str_sub(23, -10) %>% 
-  as.numeric() %>% 
-  sort()
+  str_sub(23, -10) %>%
+  as.numeric() %>%
   order()
 
+trace_tmp <- list.files(here('data/raw/chelsa_trace/bio01'),
+                        full.names = TRUE)[trace_order] |>
+  rast() |>
+  crop(ext(asia_bbox_sf))
 
-
-trace_tmp <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01/',#here('data/raw/chelsa_trace/bio05'), 
+trace_tmax <- list.files(here('data/raw/chelsa_trace/bio05'),
                          full.names = TRUE)[trace_order] |>
   rast() |>
   crop(ext(asia_bbox_sf))
 
-trace_tmax <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio05/',#here('data/raw/chelsa_trace/bio05'), 
-                         full.names = TRUE)[trace_order] |>
+trace_twarm <- list.files(here('data/raw/chelsa_trace/bio10'),
+                          full.names = TRUE)[trace_order] |>
   rast() |>
   crop(ext(asia_bbox_sf))
-
-
-trace_twarm <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio10/',#here('data/raw/chelsa_trace/bio05'), 
-                         full.names = TRUE)[trace_order] |>
-  rast() |>
-  crop(ext(asia_bbox_sf))
-
 
 trace_times <- as.Date("1950-01-01") - years(seq(12000, 0, -100))
 
@@ -185,107 +290,53 @@ names(trace_twarm) <- sprintf("t%03d", seq_len(121))
 time(trace_tmp) <- trace_times
 names(trace_tmp) <- sprintf("t%03d", seq_len(121))
 
-
 chelsa_trace <- sds(trace_tmp, trace_tmax, trace_twarm) |>
     setNames(c('bio1', 'bio5', 'bio10'))
-writeCDF(chelsa_trace, 'chelsa_trace.nc', compression = 6)
 ```
 
-```{r}
--100 * ((-100:20) - 20) 
-seq(12000, 0, -100)
-trace_times <- as.Date("1950-01-01") - years(seq(12000, 0, -100))
+#### Alternative: Streaming from CHELSA (Experimental)
 
-chelsa_trace <- read_stars('chelsa_trace.nc') |>
-  st_set_dimensions('time', values = trace_times, names = 'time') |>
-  setNames(c('MAT', 'tmax', 'twarm')) |>
-  st_set_crs(4326)
-
-chelsa_trace <- read_mdim('chelsa_trace.nc', proxy = TRUE) |>
-  setNames(c('MAT', 'tmax', 'twarm')) |>
-    st_set_dimensions('time', values = trace_times, names = 'time')
-
-plot(chelsa_trace[1,,,1])
-#time(chelsa_trace) <- seq(-12, 0, 0.1) * 1000
-```
+The following function streams CHELSA-TraCE21k data directly from the server using GDAL's `/vsicurl/` protocol. This avoids the 300 GB download but is slower and may timeout for large extractions. Included for reference but not tested for the full workflow.
 
 ```{r}
+#| eval: false
+# EXPERIMENTAL: Stream CHELSA-TraCE21k without downloading
+# Slower than local files but avoids 300 GB storage requirement
+
 chelsa_trace_base <- "https://os.zhdk.cloud.switch.ch/chelsav1/chelsa_trace/bio"
-chlesa_local_base <- '~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01/' # or bio05, etc
-# Make full /vsicurl URLs for any CHELSA variable & index vector
+
 trace_proxy <- function(var = c("bio01","bio05","bio10"), idx = -100:20) {
   var <- match.arg(var)
-  
   urls <- glue("/vsicurl/{chelsa_trace_base}/CHELSA_TraCE21k_{var}_{idx}_V1.0.tif")
-  
-  times <- as.Date("1950-01-01") - years(-100 * ((idx) - 20)) 
-  
-  read_stars(urls, proxy = TRUE, along = 'time') |> 
+  times <- as.Date("1950-01-01") - years(-100 * ((idx) - 20))
+  read_stars(urls, proxy = TRUE, along = 'time') |>
+    st_crop(asia_bbox_sf) |>
     st_set_dimensions('time', values = times, names = 'time')
 }
 
-trace_tmp <- trace_proxy('bio01')
-trace_tmax <- trace_proxy('bio05')
-trace_twarm <- trace_proxy('bio10')
-
-chelsa_trace <- c(trace_tmp, trace_tmax, trace_twarm) %>%
-  setNames(c('MAT', 'tmax', 'twarm'))
-
-# test it worked
-plot(chelsa_trace[1,,,1], downsample = 200)
+# Usage:
+# trace_tmp <- trace_proxy('bio01')
+# trace_tmax <- trace_proxy('bio05')
+# trace_twarm <- trace_proxy('bio10')
+# chelsa_trace <- c(trace_tmp, trace_tmax, trace_twarm) %>%
+#   setNames(c('MAT', 'tmax', 'twarm'))
 ```
 
-```{r chelsa-trace}
-# this is not portable nor easily downloadable (the entire dataset is ~300gb). Instead, we save the data extracted at the archaeological site points later on and skip executing this chunk by default
+#### Area-averaged time series
 
-trace_order <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01/',#here('data/raw/chelsa_trace/bio01'), 
-                          full.names = FALSE) %>%
-  str_sub(23, -10) %>% 
-  as.numeric() %>% 
-  order()
+Save the area-averaged Holocene temperature time series for Asia.
 
-trace_tmp <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio01/',#here('data/raw/chelsa_trace/bio01'), 
-                        full.names = TRUE)[trace_order] %>%
-  read_stars(along = 'time')
-
-trace_tmax <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio05/',#here('data/raw/chelsa_trace/bio05'), 
-                         full.names = TRUE)[trace_order] %>%
-  read_stars(along = 'time')
-
-trace_twarm <- list.files('~/Dropbox (UFL)/Data/CHELSA/chelsa_trace/bio10/',#here('data/raw/chelsa_trace/bio10'), 
-                         full.names = TRUE)[trace_order] %>%
-  read_stars(along = 'time') 
-
-cog_url <- "/vsicurl/https://os.zhdk.cloud.switch.ch/chelsav1/chelsa_trace/bio/CHELSA_TraCE21k_bio01_-100_V1.0.tif"
-library(stars)
-
-x <- read_stars("/vsis3/chelsav1/chelsa_trace/bio/CHELSA_TraCE21k_bio01_-100_V1.0.tif",
-                proxy = TRUE)
-plot(x[,,,1])  # or st_extract(...) for point sampling
-
-# Set environment variables
-Sys.setenv(AWS_NO_SIGN_REQUEST = "YES")
-Sys.setenv(GDAL_DISABLE_READDIR_ON_OPEN = "EMPTY_DIR")
-
-# proxy=TRUE ensures only metadata is read at this point
-r <- read_stars(cog_url, proxy = TRUE)
-plot(r, downsample = 200)
-
-
-chelsa_trace <- c(trace_tmp, trace_tmax, trace_twarm) %>%
-    st_set_dimensions('time', values = trace_times, names = 'time') |>
-  #st_set_dimensions('time', values = seq(-12, 0, 0.1) * 1000, names = 'time') %>%
-  setNames(c('MAT', 'tmax', 'twarm'))
-
-# save the the area-averaged time series as well
+```{r}
+#| eval: false
+# Requires trace data to be loaded (either from local files or streaming)
 sf_use_s2(FALSE)
 trace_ts <- list('bio01', 'bio05', 'bio10') |>
-  map(~ paste0(here('data/raw/chelsa_trace/'), .x) |>
+  map(~ here('data/raw/chelsa_trace', .x) |>
         list.files(full.names = TRUE) %>%
         .[trace_order] |>
         read_stars(along = 'time') |>
-          st_downsample(n = 50) |>
-  st_crop(asia_bbox_sf)) %>%
+        st_downsample(n = 50) |>
+        st_crop(asia_bbox_sf)) %>%
   do.call('c', .) |>
   st_set_dimensions('time', values = seq(12, 0, -0.1), names = 'time') |>
   setNames(c('bio1', 'bio5', 'bio10')) |>
@@ -294,11 +345,6 @@ trace_ts <- list('bio01', 'bio05', 'bio10') |>
 sf_use_s2(TRUE)
 
 write_rds(trace_ts, here('data/derived/trace_ts.rds'))
-https://os.zhdk.cloud.switch.ch/chelsav1/chelsa_trace/bio/CHELSA_TraCE21k_bio01_-100_V1.0.tif
-
-# test of alternative method using vsicurl to stream data w/out download, too slow for most applications though!
-test <- read_stars('/vsicurl/https://os.zhdk.cloud.switch.ch/envicloud/chelsa/chelsa_V1/chelsa_trace/bio/CHELSA_TraCE21k_bio01_-100_V1.0.tif', proxy = TRUE)
-#plot(test)
 ```
 
 Download, import, and process the LGMR and Erb et al. reconstructions. Save the results clipped to Asia for further analysis.
@@ -309,8 +355,6 @@ lgmr_url <- 'https://www.ncei.noaa.gov/pub/data/paleo/reconstructions/osman2021/
 
 erb_dest <- here('data/raw/holocene_reconstruction.nc')
 lgmr_dest <- here('data/raw/LGMR_SAT_climo.nc')
-
-
 
 options(timeout = max(1500, getOption("timeout")))
 if (!file.exists(erb_dest)) download.file(erb_url, erb_dest)
