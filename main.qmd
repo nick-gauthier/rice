@@ -32,7 +32,6 @@ abstract: |
   Rice is a staple food for over one billion people in Asia. Understanding rice's historical thermal limits is critical for predicting its response to future climate shifts. Here, we integrate contemporary records of rice cultivation, archaeological data spanning rice's long-term history of cultivation, and temperature projections for the past and future to assess how warm temperatures have constrained rice's distribution and the adaptive strategies used to sustain its production. These thermal limits have remained consistent throughout rice's domestication history despite its genetic diversification and geographic expansion. Over the past 10,000 years, domesticated Asian rice has rarely thrived where mean annual temperature exceeds 28°C or warm-season maximum temperature exceeds 33°C. By the end of this century, projections estimate that the land area exceeding these thermal thresholds could expand by ten to thirty times in Asia's major rice-producing nations. Rice-dependent regions face unprecedented challenges in maintaining this staple crop under projected warming.
 bibliography: references.bib
 csl: science.csl
-# csl: _extensions/nature/csl/springer-basic-author-date.csl
 ---
 
 ```{r}
@@ -84,7 +83,7 @@ arch_trace_dat <- readRDS(here('data/derived/arch_trace.rds')) |>
   mutate(mil = as.factor(mil)) 
 
 cmip6_maps <- readRDS(here('data/derived/cmip6_data.rds'))
-country_stats <- readRDS('data/derived/country_stats.rds') # country level stats
+country_stats <- readRDS(here('data/derived/country_stats.rds')) # country level stats
 ```
 
 {{< pagebreak >}}
@@ -503,13 +502,14 @@ To make predictions about where the climate is likely to be optimal for rice-gro
 
 {{< pagebreak >}}
 
+```{=tex}
 \newpage
 \appendix
 \renewcommand{\thefigure}{S\arabic{figure}}
 \renewcommand{\thetable}{S\arabic{table}}
 \setcounter{figure}{0}
 \setcounter{table}{0}
-
+```
 # Supplementary Materials {.appendix}
 
 Supplementary Materials for **Projected warming will exceed the long-term thermal limits of rice cultivation**
