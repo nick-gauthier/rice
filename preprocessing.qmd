@@ -350,7 +350,7 @@ ssp_names <- c('ssp126', 'ssp370', 'ssp585')
 
 cmip6 <- model_names %>%
   map(paste,  ssp_names, sep = '/' ) %>%
-  map_depth(1, ~here('data/raw/chelsa_cmip', .x, 'bio') %>% as.list()) %>% #'~/Dropbox (UFL)/Data/CHELSA/CMIP6/2071-2100/'
+  map_depth(1, ~here('data/raw/chelsa_cmip', .x, 'bio') %>% as.list()) %>%
   map_depth(2, ~list.files(.x, full.names = TRUE, pattern = '*_bio1_|_bio5_|_bio10_*')) %>%
   map_depth(2, ~read_stars(.x) %>%
               setNames(c('bio1', 'bio10', 'bio5')) %>%
@@ -363,29 +363,41 @@ cmip6 <- model_names %>%
   st_redimension() %>%
   st_set_dimensions(names = c('x', 'y', 'variable', 'ssp', 'model')) %>%
   setNames('temperature') %>%
-  .[countries] |>
-  st_downsample(10) # downsample for plotting
+  .[countries]
 
-saveRDS(cmip6, here('data/derived/cmip6_data.rds'))
+cmip6 |>
+  st_downsample(10) |> # downsample for plotting
+  saveRDS(here('data/derived/cmip6_data.rds'))
 ```
 
 This dataset can be downloaded from the CHELSA repository but is quite large. For reproducibility we save intermediate versions of this needed for analyses in the main text and supplement.
 
 #### Country level summaries
 
-Create country level summaries of projections. This process is convoluted to cut down on computational time.
+Calculate percentage of each country's area exceeding thermal thresholds under current and projected climate scenarios.
 
 ```{r}
-countries_sub <- countries %>% 
-  filter(name %in% c('China', 'India', 'Indonesia', 'Bangladesh', 'Vietnam', 
-                     'Thailand', 'Philippines', 'Myanmar', 'Pakistan', 'Japan', 
+#| eval: false
+# NOTE: Slow to run due to large raster aggregations. Output saved to country_stats.rds.
+# Threshold values (28.2, 32.7, 40.4) are 97.5% quantiles calculated in main.qmd.
+
+# Select major rice-producing countries
+countries_sub <- countries %>%
+  filter(name %in% c('China', 'India', 'Indonesia', 'Bangladesh', 'Vietnam',
+                     'Thailand', 'Philippines', 'Myanmar', 'Pakistan', 'Japan',
                      'South Korea', 'Cambodia', 'Laos', 'Nepal', 'Malaysia'))
-         
-countries_extract <- chelsa_obs %>%
+
+chelsa_obs <- here('data/raw', filenames[1:3]) |>
+  read_stars(along = 'variable') |>
+  st_crop(asia_bbox_sf) |>
+  st_set_dimensions('variable', values = c('bio1', 'bio5', 'bio10'))
+
+# Calculate observed climate exceedance (boolean: does each cell exceed threshold?)
+obs_exceedance <- chelsa_obs %>%
   split('variable') %>%
-  mutate(bio1 = bio1 > drop_units(bio1_limit),
-         bio10 = bio10 > drop_units(bio10_limit),
-         bio5 = bio5 > drop_units(bio5_limit)) %>%
+  mutate(bio1 = bio1 > 28.2,
+         bio10 = bio10 > 32.7,
+         bio5 = bio5 > 40.4) %>%
   rename(`Mean annual temperature` = bio1,
          `Max temperature of warmest quarter` = bio10,
          `Max temperature of warmest month` = bio5) %>%
@@ -394,68 +406,62 @@ countries_extract <- chelsa_obs %>%
   st_downsample(5) %>%
   setNames('sum')
 
-plot(countries_extract)
-
-test <- cmip6 %>%
+# Calculate CMIP6 projected climate exceedance
+cmip6_exceedance <- cmip6 %>%
   split('variable') %>%
-  mutate(bio1 = bio1 > drop_units(bio1_limit),
-         bio10 = bio10 > drop_units(bio10_limit),
-         bio5 = bio5 > drop_units(bio5_limit)) %>%
+  mutate(bio1 = bio1 > 28.2,
+         bio10 = bio10 > 32.7,
+         bio5 = bio5 > 40.4) %>%
   rename(`Mean annual temperature` = bio1,
          `Max temperature of warmest quarter` = bio10,
          `Max temperature of warmest month` = bio5) %>%
   merge(name = 'variable')
 
-
-plot(countries['name'] )
-
-test1 <- st_crop(test, st_bbox(countries_sub)) %>%
+# Crop and downsample projected data
+cmip6_cropped <- st_crop(cmip6_exceedance, st_bbox(countries_sub)) %>%
   st_downsample(5) %>%
   setNames('sum')
 
-areas <- st_area(test1) %>% drop_units()
-plot(areas)
-plot(obs_test)
+# Calculate cell areas for area-weighted aggregation
+cell_areas <- st_area(cmip6_cropped) %>% drop_units()
 
-test2 <- test1 * areas
-plot(test2)
+# Weight exceedance by cell area
+cmip6_weighted <- cmip6_cropped * cell_areas
+obs_weighted <- obs_exceedance * cell_areas
 
-obs_weight <- countries_extract * areas
-plot(obs_weight, downsample = 0)
-
-test3 <- aggregate(test2, by = st_geometry(countries_sub), FUN = sum, na.rm = TRUE) %>%
+# Aggregate projected exceedance by country
+cmip6_by_country <- aggregate(cmip6_weighted, by = st_geometry(countries_sub), FUN = sum, na.rm = TRUE) %>%
   as_tibble() %>%
   select(-geometry) %>%
   mutate(name = rep(countries_sub$name, length.out = n()))
 
-
-test4 <- aggregate(areas, by = st_geometry(countries_sub), FUN = sum, na.rm = TRUE) %>%
+# Aggregate total area by country
+country_areas <- aggregate(cell_areas, by = st_geometry(countries_sub), FUN = sum, na.rm = TRUE) %>%
   as_tibble() %>%
   select(-geometry) %>%
   mutate(name = countries_sub$name)
 
-obs_ext <- aggregate(obs_weight, by = st_geometry(countries_sub), FUN = sum, na.rm = TRUE) %>%
+# Aggregate observed exceedance by country
+obs_by_country <- aggregate(obs_weighted, by = st_geometry(countries_sub), FUN = sum, na.rm = TRUE) %>%
   as_tibble() %>%
   select(-geometry) %>%
   mutate(name = rep(countries_sub$name, length.out = n())) %>%
-  left_join(test4) %>%
-   mutate(percent = round(sum / area * 100),
-          ssp = 'present')
+  left_join(country_areas) %>%
+  mutate(percent = round(sum / area * 100),
+         ssp = 'present')
 
-df <- left_join(test3, test4) %>%
+# Combine and calculate percentages
+country_stats <- left_join(cmip6_by_country, country_areas) %>%
   mutate(percent = round(sum / area * 100)) %>%
-  #select(-sum, -area) %>%
   group_by(name, variable, ssp) %>%
   summarise(percent = mean(percent, na.rm = TRUE),
             sum = mean(sum, na.rm = TRUE),
             area = mean(area, na.rm = TRUE)) %>%
   ungroup() %>%
-  bind_rows(obs_ext)
+  bind_rows(obs_by_country)
 
-saveRDS(df, 'data/derived/country_stats.rds')
+saveRDS(country_stats, here('data/derived/country_stats.rds'))
 ```
-
-### 
 
 ## Contemporary Rice Distribution Data
 
