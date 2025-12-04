@@ -18,18 +18,18 @@ format:
     keep-tex: true
     toc: false
     notebook-links: false
-    include-in-header:
-      text: '\usepackage{lineno}\linenumbers'
-  #nature-pdf:
-  #  journal:
-  #    cite-style: sn-nature
-  #  cite-method: natbib
-  #  toc: false
-  #  notebook-links: false
+   # include-in-header:
+    #  text: '\usepackage{lineno}\linenumbers'
+  nature-pdf:
+    journal:
+      cite-style: sn-nature
+    cite-method: natbib
+    toc: false
+    notebook-links: false
    # lineno: true
   #  equalmargins: true
 
 
-#environmnet: "renv.lock"
+environment: "renv.lock"
 execute:
-  freeze: false
+  freeze: auto
